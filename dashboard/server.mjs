@@ -143,12 +143,63 @@ async function providerStatus(id) {
   try {const r=await exec(executable(id),p.status,{env,timeout:10000});return {id,name:p.name,model:p.model,installed:true,connected:authenticated(id,r.stdout,r.stderr),loginCommand:[p.cli,...p.login].filter(Boolean).join(' '),kind:p.kind||'subscription',tier:p.tier||'preferred',priority:PRIMARY_PROVIDERS.includes(id)};}
   catch(e){return {id,name:p.name,model:p.model,installed:e.code!=='ENOENT',connected:false,loginCommand:[p.cli,...p.login].filter(Boolean).join(' '),kind:p.kind||'subscription',tier:p.tier||'preferred',priority:PRIMARY_PROVIDERS.includes(id)};}
 }
+async function elixirMcpStatus() {
+  const cfg = jarvisConfig.elixirMcp || {};
+  const endpoint = typeof cfg.endpoint === 'string' ? cfg.endpoint : '';
+  const enabled = cfg.enabled !== false && !!endpoint;
+  const serverName = cfg.serverName || 'elixir';
+  let cursorConfigured = false;
+  try {
+    const mcpPath = path.join(process.env.HOME || '', '.cursor', 'mcp.json');
+    if (existsSync(mcpPath)) {
+      const mcp = JSON.parse(await readFile(mcpPath, 'utf8'));
+      const servers = mcp.mcpServers || {};
+      cursorConfigured = !!(servers[serverName] || servers.Elixir || servers.elixir);
+    }
+  } catch { /* ignore */ }
+  let reachable = false;
+  let httpStatus = null;
+  if (enabled && endpoint) {
+    try {
+      const ctrl = new AbortController();
+      const t = setTimeout(() => ctrl.abort(), 6000);
+      const r = await fetch(endpoint, { method: 'GET', headers: { Accept: 'application/json' }, signal: ctrl.signal });
+      clearTimeout(t);
+      httpStatus = r.status;
+      // 401/403 = server up, auth required (expected without inventing credentials)
+      reachable = r.status > 0;
+    } catch (e) {
+      reachable = false;
+      httpStatus = null;
+    }
+  }
+  const state = !enabled ? 'disabled'
+    : cursorConfigured && reachable ? 'ready_to_connect'
+    : reachable ? 'endpoint_up_attach_mcp'
+    : 'offline';
+  return {
+    enabled,
+    endpoint: endpoint || null,
+    serverName,
+    label: cfg.label || 'ELIXIR ECOM',
+    docs: Array.isArray(cfg.docs) ? cfg.docs : [],
+    notes: cfg.notes || 'Attach Elixir MCP in Cursor. JARVIS does not store MCP credentials.',
+    cursorConfigured,
+    reachable,
+    httpStatus,
+    state,
+    tools: [], // populated once MCP tools are wired through a live session
+    resources: [],
+  };
+}
+
 async function status() {
  const list=await Promise.all(['cursor','gemini','chatgpt','ollama'].map(providerStatus));
  const providers=Object.fromEntries(list.map(p=>[p.id,p]));
  const primary=pickDefaultProvider(providers);
  const whisper=whisperReady();
  const vaultOk=!!(jarvisConfig.vaultPath&&existsSync(jarvisConfig.vaultPath));
+ const elixirMcp=await elixirMcpStatus();
  return {
   connected:!!providers[primary]?.connected,
   provider:PROVIDERS[primary].name,
@@ -171,6 +222,7 @@ async function status() {
     playwrightMcp:{path:path.join(home,'skills/github/playwright-mcp'),installed:existsSync(path.join(home,'skills/github/playwright-mcp')),mcp:'npx -y @playwright/mcp@latest'},
     autoBrowser:{path:path.join(home,'skills/github/auto-browser'),installed:existsSync(path.join(home,'skills/github/auto-browser')),start:'cd ~/Desktop/JARVIS/skills/github/auto-browser && docker compose up -d',url:'http://127.0.0.1:8000'},
   },
+  elixirMcp,
   memoryHealth:brain.memoryHealth,
   speech:{whisper,webSpeechFallback:true,wakeWord:jarvisConfig.wakeWord||'hey jarvis'},
  };

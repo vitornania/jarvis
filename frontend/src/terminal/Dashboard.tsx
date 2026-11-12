@@ -6,6 +6,7 @@ import './terminal.css';
 import { Knowledge, Skills, AppearancePanel, VoicePanel, PALETTES, type BrainState, type Appearance, type PaletteId } from './BrainPanels';
 import { Hero3D, RailGlyph } from './Hero3D';
 import { Composer } from './Composer';
+import { ElixirEcomPanel, type ElixirMcpStatus } from './ElixirEcomPanel';
 import { speakText, stopSpeaking, matchesWakeWord, phaseLabel, type VoicePhase } from './voice';
 import './shell.css';
 
@@ -21,7 +22,21 @@ type Session = {
   messages: { id: string; role: string; content: string }[]; activity: string; error?: string; elapsedMs?: number;
   usage?: { input_tokens: number; cached_input_tokens: number; output_tokens: number };
 };
-type Status = { providers: Record<string, ProviderStatus>; connected: boolean; provider: string; model: string; openjarvis: boolean; workspace: string; vaultPath?: string; brand?: string; defaultProvider?: Provider; defaultProject?: string; memoryHealth?: { ok?: boolean; vaultWritable?: boolean; memories?: number }; godMode?: { label?: string } };
+type Status = {
+  providers: Record<string, ProviderStatus>;
+  connected: boolean;
+  provider: string;
+  model: string;
+  openjarvis: boolean;
+  workspace: string;
+  vaultPath?: string;
+  brand?: string;
+  defaultProvider?: Provider;
+  defaultProject?: string;
+  memoryHealth?: { ok?: boolean; vaultWritable?: boolean; memories?: number };
+  godMode?: { label?: string };
+  elixirMcp?: ElixirMcpStatus;
+};
 type BrowserSpeechRecognition = {
   continuous: boolean;
   interimResults: boolean;
@@ -59,7 +74,7 @@ export default function Dashboard() {
   const [view, setView] = useState(() => {
     try {
       const q = new URLSearchParams(window.location.search).get('view');
-      if (q && ['workspace','agents','connections','knowledge','skills','appearance','voice'].includes(q)) return q;
+      if (q && ['workspace','agents','connections','knowledge','skills','appearance','voice','elixir'].includes(q)) return q;
     } catch { /* ignore */ }
     return 'workspace';
   });
@@ -106,7 +121,7 @@ export default function Dashboard() {
   }, []);
   useEffect(() => { try { localStorage.setItem('terminal.appearance', JSON.stringify(appearance)); } catch { /* ignore */ } }, [appearance]);
 
-  const viewNames: Record<string, string> = { workspace: 'Workspace', agents: 'Agent desk', connections: 'Connections', knowledge: 'Knowledge', skills: 'Skills', appearance: 'Appearance', voice: 'Voice' };
+  const viewNames: Record<string, string> = { workspace: 'Workspace', agents: 'Agent desk', connections: 'Connections', knowledge: 'Knowledge', skills: 'Skills', appearance: 'Appearance', voice: 'Voice', elixir: 'ELIXIR ECOM' };
   const connectedCount = Object.values(status?.providers || {}).filter(p => p.connected).length;
   const selectedConnection = status?.providers?.[provider];
 
@@ -150,11 +165,14 @@ export default function Dashboard() {
     return () => { stream.close(); clearInterval(t); };
   }, []);
 
-  // Prefer a non-Ollama session as the visible default when Cursor/Gemini/Chat are available.
+  // Prefer a non-Ollama session with messages as the visible default.
   useEffect(() => {
     if (active || !sessions.length) return;
-    const preferred = sessions.find(s => s.provider !== 'ollama') || sessions[0];
-    setActive(preferred.id);
+    const withMsgs = sessions.find(s => s.provider !== 'ollama' && (s.messages?.length || 0) > 0)
+      || sessions.find(s => (s.messages?.length || 0) > 0)
+      || sessions.find(s => s.provider !== 'ollama')
+      || sessions[0];
+    setActive(withMsgs.id);
   }, [sessions, active]);
 
   // Keep Cursor as the preferred selection. Only leave Ollama automatically.
@@ -272,6 +290,7 @@ export default function Dashboard() {
   const nav = [
     { id: 'workspace', name: 'Workspace' },
     { id: 'agents', name: 'Agent desk' },
+    { id: 'elixir', name: 'ELIXIR ECOM' },
     { id: 'knowledge', name: 'Knowledge' },
     { id: 'skills', name: 'Skills' },
     { id: 'appearance', name: 'Appearance' },
@@ -281,6 +300,7 @@ export default function Dashboard() {
   const heading = {
     workspace: ['Workspace', 'Think, build, and dig in. Vault beside you. Cursor first when connected.'],
     agents: ['Agent desk', 'Research, build, review, and God mode on subscription CLIs.'],
+    elixir: ['ELIXIR ECOM', 'Ecommerce MCP for Elixir. Attach in Cursor - no credentials stored here.'],
     connections: ['Connections', 'Cursor preferred. Gemini and ChatGPT next. Ollama is local fallback only.'],
     knowledge: ['Knowledge', 'Beaumont Voss, Talvori, personal, and Zeta in one vault.'],
     skills: ['Skills', 'Ecommerce packs and COG tools. Load only what you need.'],
@@ -375,6 +395,7 @@ export default function Dashboard() {
           : view === 'skills' ? <Skills brain={brain} selected={selectedSkills} setSelected={setSelectedSkills} />
           : view === 'appearance' ? <AppearancePanel value={appearance} onChange={setAppearance} onCursor={() => api('cursor/open', 'POST', {}).then(r => setNotice(r.message)).catch(e => setError(String(e)))} />
           : view === 'voice' ? <VoicePanel />
+          : view === 'elixir' ? <ElixirEcomPanel elixir={status?.elixirMcp} onRefresh={refreshConnections} refreshing={refreshing} />
           : view === 'workspace' ? (
             <div className={`work-grid ${split && other ? 'split-mode' : ''}`}>
               <section className="chat-panel">
@@ -407,6 +428,7 @@ export default function Dashboard() {
                   </div>
                   <div className="inspector-links">
                     <button type="button" onClick={() => setView('agents')}>Agent desk</button>
+                    <button type="button" onClick={() => setView('elixir')}>ELIXIR ECOM</button>
                     <button type="button" onClick={() => setView('connections')}>Connections</button>
                     <button type="button" onClick={() => setView('knowledge')}>Knowledge</button>
                   </div>
@@ -745,22 +767,27 @@ function Chat({ session: s, connected, onError, wakeToken = 0, wakeArmed = false
           {s.contextSources.map(source => <span key={source.id}>{source.kind} · {source.title}</span>)}
         </details>
       ) : null}
-      <div className="chat-scroll" ref={list} onScroll={() => { const el = list.current; if (el) pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80; }}>
+      <div className="chat-scroll chat-thread" ref={list} onScroll={() => { const el = list.current; if (el) pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80; }}>
         {!s.messages.length ? <Welcome /> : s.messages.map(m => (
-          <article className={`message ${m.role}`} key={m.id}>
-            <div className="message-label">
-              <span>{m.role === 'user' ? 'YOU' : 'JARVIS'}</span>
-              <span className="message-actions">
-                {m.content && (
-                  <button title="Copy message" onClick={() => navigator.clipboard.writeText(m.content).then(() => { setCopied(m.id); setTimeout(() => setCopied(''), 1500); }).catch(() => onError('Clipboard is unavailable. Select and copy the text.'))}>
-                    {copied === m.id ? 'Copied' : 'Copy'}
-                  </button>
-                )}
-              </span>
+          <article className={`message bubble ${m.role === 'user' ? 'from-you' : 'from-jarvis'}`} key={m.id}>
+            <div className="bubble-meta">
+              <span className="bubble-who">{m.role === 'user' ? 'You' : 'JARVIS'}</span>
+              {m.content && (
+                <button
+                  type="button"
+                  className="bubble-copy"
+                  title="Copy message"
+                  onClick={() => navigator.clipboard.writeText(m.content).then(() => { setCopied(m.id); setTimeout(() => setCopied(''), 1500); }).catch(() => onError('Clipboard is unavailable. Select and copy the text.'))}
+                >
+                  {copied === m.id ? 'Copied' : 'Copy'}
+                </button>
+              )}
             </div>
-            {m.content ? <div className="message-content"><ReactMarkdown>{m.content}</ReactMarkdown></div>
-              : running ? <div className="thinking"><span /><span /><span /><small>{s.activity}</small></div>
-                : <p className="muted-text">{s.status === 'stopped' ? 'Response stopped.' : 'No response received.'}</p>}
+            <div className="bubble-body">
+              {m.content ? <div className="message-content"><ReactMarkdown>{m.content}</ReactMarkdown></div>
+                : running ? <div className="thinking"><span /><span /><span /><small>{s.activity}</small></div>
+                  : <p className="muted-text">{s.status === 'stopped' ? 'Response stopped.' : 'No response received.'}</p>}
+            </div>
           </article>
         ))}
         {s.error && <div className="chat-error" role="alert">{s.error}</div>}

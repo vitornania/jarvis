@@ -34,5 +34,16 @@
     "Market Research": "beaumont-voss",
     "bv": "beaumont-voss"
   },
-  "autoHarvest": true
+  "autoHarvest": true,
+  "elixirMcp": {
+    "enabled": true,
+    "endpoint": "https://mvp.ecomelixir.com/api/mcp",
+    "label": "ELIXIR ECOM",
+    "serverName": "elixir",
+    "docs": [
+      "vault/imports/market-research/market-research-export.md",
+      "vault/01-projects/market-research/market-research-export.md"
+    ],
+    "notes": "Attach Elixir MCP in Cursor (~/.cursor/mcp.json). JARVIS does not store MCP credentials. Tools/resources appear once Cursor can reach the server."
+  }
 }
