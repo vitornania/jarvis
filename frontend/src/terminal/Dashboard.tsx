@@ -288,14 +288,14 @@ export default function Dashboard() {
 
   const totalTokens = sessions.reduce((n, s) => n + (s.usage?.output_tokens || 0), 0);
   const nav = [
-    { id: 'workspace', name: 'Workspace' },
-    { id: 'agents', name: 'Agent desk' },
-    { id: 'elixir', name: 'ELIXIR ECOM' },
-    { id: 'knowledge', name: 'Knowledge' },
-    { id: 'skills', name: 'Skills' },
-    { id: 'appearance', name: 'Appearance' },
-    { id: 'connections', name: 'Connections' },
-    { id: 'voice', name: 'Voice' },
+    { id: 'workspace', name: 'Workspace', ico: 'W' },
+    { id: 'agents', name: 'Agent desk', ico: 'A' },
+    { id: 'elixir', name: 'ELIXIR ECOM', ico: 'E' },
+    { id: 'knowledge', name: 'Knowledge', ico: 'K' },
+    { id: 'skills', name: 'Skills', ico: 'S' },
+    { id: 'appearance', name: 'Appearance', ico: 'T' },
+    { id: 'connections', name: 'Connections', ico: 'C' },
+    { id: 'voice', name: 'Voice', ico: 'V' },
   ];
   const heading = {
     workspace: ['Workspace', 'Think, build, and dig in. Vault beside you. Cursor first when connected.'],
@@ -304,11 +304,13 @@ export default function Dashboard() {
     connections: ['Connections', 'Cursor preferred. Gemini and ChatGPT next. Ollama is local fallback only.'],
     knowledge: ['Knowledge', 'Beaumont Voss, Talvori, personal, and Zeta in one vault.'],
     skills: ['Skills', 'Ecommerce packs and COG tools. Load only what you need.'],
-    appearance: ['Appearance', 'Midnight or Paper. One ink accent. Quiet chrome.'],
+    appearance: ['Appearance', 'Vision glass chrome. Brand blue from Creative Tim Vision UI.'],
     voice: ['Voice', 'Listen only. FreeFlow preferred. Mic as fallback. No speak-out.'],
   } as Record<string, [string, string]>;
 
   const connectionOrder: Provider[] = ['cursor', 'gemini', 'chatgpt', 'ollama'];
+  const bridgeLabel = online ? 'Online' : 'Reconnecting';
+  const providerReady = !!selectedConnection?.connected;
 
   return (
     <div className="terminal-app" data-theme={appearance.theme === 'system' ? (systemDark ? 'dark' : 'light') : appearance.theme} data-palette={appearance.palette}>
@@ -316,9 +318,8 @@ export default function Dashboard() {
         <div className="rail-brand">
           <a className="brand" href="/" aria-label="JARVIS home">
             <RailGlyph />
-            <span className="brand-word">JARVIS<span className="brand-dot">.</span><small>PERSONAL AI WORKSPACE</small></span>
+            <span className="brand-word">JARVIS<span className="brand-dot">.</span><small>VISION WORKSPACE</small></span>
           </a>
-          <div className="workspace-label"><span>Personal workspace<small>Local on your Mac</small></span></div>
         </div>
         <div className="rail-compose">
           <button className="new-session" onClick={() => create()} disabled={creating}>New conversation <kbd>⌘J</kbd></button>
@@ -330,10 +331,13 @@ export default function Dashboard() {
             </select>
           </label>
         </div>
+        <div className="rail-nav-label">Pages</div>
         <nav className="rail-nav" aria-label="Main navigation">
           {nav.map(item => (
             <button className={view === item.id ? 'selected' : ''} key={item.id} onClick={() => { setView(item.id); setMobile(false); }}>
-              {item.name}{item.id === 'workspace' && sessions.length > 0 ? <span className="nav-count">{sessions.length}</span> : null}
+              <span className="nav-ico" aria-hidden="true">{item.ico}</span>
+              <span className="nav-label">{item.name}</span>
+              {item.id === 'workspace' && sessions.length > 0 ? <span className="nav-count">{sessions.length}</span> : <span className="nav-chevron" aria-hidden="true">›</span>}
             </button>
           ))}
         </nav>
@@ -359,17 +363,31 @@ export default function Dashboard() {
             {!sessions.length && <p className="rail-empty">No conversations yet.</p>}
           </div>
         </div>
-        <div className="rail-footer"><span>Bridge {online ? 'online' : 'reconnecting'}{voicePhase !== 'idle' ? ` · ${phaseLabel(voicePhase)}` : ''}</span></div>
+        <div className="rail-help">
+          <strong>Need help?</strong>
+          <p>Bridge {bridgeLabel.toLowerCase()}. Cursor → Gemini → ChatGPT. Ollama is offline fallback only.</p>
+          <button type="button" onClick={() => { setView('connections'); setMobile(false); }}>Check connections</button>
+        </div>
       </aside>
       {mobile && <button className="mobile-scrim" aria-label="Close menu" onClick={() => setMobile(false)} />}
       <div className="main-shell">
         <header className="topbar">
           <button className="mobile-toggle" aria-label="Open menu" onClick={() => setMobile(!mobile)}><HamburgerMenuIcon /></button>
-          <div className="breadcrumb">JARVIS <span>/</span> <strong>{viewNames[view]}</strong></div>
+          <div className="breadcrumb">Pages <span>/</span> <strong>{viewNames[view]}</strong></div>
+          <label className="top-search">
+            <input
+              placeholder="Type here…"
+              aria-label="Search conversations"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              onFocus={() => document.getElementById('session-search')?.focus()}
+            />
+          </label>
           <div className="top-status">
             {status ? `${connectedCount} connected` : 'Checking…'}
-            {voicePhase !== 'idle' ? <em>{phaseLabel(voicePhase)}</em> : null}
+            {voicePhase !== 'idle' ? <em>{phaseLabel(voicePhase)}</em> : <em>{bridgeLabel}</em>}
           </div>
+          <button type="button" className="top-icon-btn" aria-label="Open connections" onClick={() => setView('connections')}>◎</button>
         </header>
         <div className="workspace-heading">
           <div>
@@ -381,11 +399,39 @@ export default function Dashboard() {
           )}
         </div>
         {(view === 'workspace' || view === 'agents') && (
-          <div className="status-line" aria-label="Workspace status">
-            <span><strong>{providerNames[provider]}</strong>{selectedConnection?.connected ? 'ready' : 'needs setup'}</span>
-            <span><strong>{running.length}</strong>running</span>
-            <span><strong>{number(totalTokens)}</strong>tokens out</span>
-            <span><strong>Free / Sub</strong>no paid API keys</span>
+          <div className="vui-stats" aria-label="Workspace status">
+            <div className="vui-stat">
+              <div>
+                <span>Provider</span>
+                <strong>{providerNames[provider]}</strong>
+                <small className={providerReady ? undefined : 'warn'}>{providerReady ? 'Ready' : 'Setup needed'}</small>
+              </div>
+              <div className="vui-stat-ico" aria-hidden="true">P</div>
+            </div>
+            <div className="vui-stat">
+              <div>
+                <span>Running</span>
+                <strong>{running.length}</strong>
+                <small>{running.length ? 'Active jobs' : 'Idle'}</small>
+              </div>
+              <div className="vui-stat-ico" aria-hidden="true">R</div>
+            </div>
+            <div className="vui-stat">
+              <div>
+                <span>Tokens out</span>
+                <strong>{number(totalTokens)}</strong>
+                <small>This session set</small>
+              </div>
+              <div className="vui-stat-ico" aria-hidden="true">T</div>
+            </div>
+            <div className="vui-stat">
+              <div>
+                <span>Billing</span>
+                <strong>Sub only</strong>
+                <small>No paid API keys</small>
+              </div>
+              <div className="vui-stat-ico" aria-hidden="true">$</div>
+            </div>
           </div>
         )}
         {notice && <div className="connection-notice" role="status">{notice}<button onClick={() => setNotice('')} aria-label="Dismiss notice"><Cross2Icon /></button></div>}
