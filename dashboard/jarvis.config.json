@@ -15,7 +15,13 @@
     "providerPrefer": ["cursor", "gemini", "chatgpt"],
     "maxParallel": 6,
     "streaming": true,
-    "effort": "high"
+    "effort": "high",
+    "browserTools": ["playwright-mcp", "auto-browser"]
+  },
+  "browserTools": {
+    "playwrightMcp": "/Users/vitornania/Desktop/JARVIS/skills/github/playwright-mcp",
+    "autoBrowser": "/Users/vitornania/Desktop/JARVIS/skills/github/auto-browser",
+    "mcpConfig": "/Users/vitornania/Desktop/JARVIS/app/dashboard/mcp-browser.json"
   },
   "whisperBin": "whisper-cli",
   "whisperModel": "/Users/vitornania/Desktop/JARVIS/models/whisper/ggml-tiny.bin",

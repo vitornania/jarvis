@@ -13,6 +13,9 @@ function MicIcon() {
 import '@fontsource-variable/geist';
 import './terminal.css';
 import { Knowledge, Skills, AppearancePanel, VoicePanel, PALETTES, type BrainState, type Appearance, type PaletteId } from './BrainPanels';
+import { Hero3D, RailGlyph } from './Hero3D';
+import { speakText, stopSpeaking, matchesWakeWord, phaseLabel, type VoicePhase } from './voice';
+import './redesign.css';
 
 type Provider = 'chatgpt' | 'claude' | 'cursor' | 'gemini' | 'ollama';
 const providerNames: Record<Provider, string> = { chatgpt: 'ChatGPT', claude: 'Claude', cursor: 'Cursor', gemini: 'Gemini', ollama: 'Ollama' };
@@ -56,21 +59,19 @@ async function api(path: string, method = 'GET', data?: unknown) {
 }
 const number = (n: number) => new Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 1 }).format(n);
 
-function speakText(text: string) {
-  if (!window.speechSynthesis) return;
-  window.speechSynthesis.cancel();
-  const u = new SpeechSynthesisUtterance(text.replace(/[#*_`]/g, ' ').slice(0, 4000));
-  u.rate = 1.02;
-  window.speechSynthesis.speak(u);
-}
-
 export default function Dashboard() {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [active, setActive] = useState('');
   const [status, setStatus] = useState<Status | null>(null);
   const [online, setOnline] = useState(false);
   const [search, setSearch] = useState('');
-  const [view, setView] = useState('workspace');
+  const [view, setView] = useState(() => {
+    try {
+      const q = new URLSearchParams(window.location.search).get('view');
+      if (q && ['workspace','agents','connections','knowledge','skills','appearance','voice'].includes(q)) return q;
+    } catch { /* ignore */ }
+    return 'workspace';
+  });
   const [split, setSplit] = useState(false);
   const [mobile, setMobile] = useState(false);
   const [error, setError] = useState('');
@@ -88,11 +89,14 @@ export default function Dashboard() {
       const a = JSON.parse(localStorage.getItem('terminal.appearance') || 'null');
       if (a && ['dark', 'light', 'system'].includes(a.theme) && paletteIds.includes(a.palette)) return a;
     } catch { /* ignore */ }
-    return { theme: 'dark', palette: 'mono' };
+    return { theme: 'dark', palette: 'copper' };
   });
   const [systemDark, setSystemDark] = useState(window.matchMedia('(prefers-color-scheme: dark)').matches);
   const [wakeHeard, setWakeHeard] = useState(0);
   const [wakeArmed, setWakeArmed] = useState(false);
+  const [voicePhase, setVoicePhase] = useState<VoicePhase>('idle');
+  const wakeBusy = useRef(false);
+  const wakeCooldownUntil = useRef(0);
 
   async function refreshBrain() { try { setBrain(await api('brain')); } catch (e) { setError(String(e)); } }
   useEffect(() => { void refreshBrain(); }, [view]);
@@ -137,23 +141,41 @@ export default function Dashboard() {
     };
     const refresh = () => api('status').then((s: Status) => {
       setStatus(s);
-      if (s.defaultProvider && primaryProviders.includes(s.defaultProvider)) setProvider(prev => (prev === 'ollama' ? s.defaultProvider! : prev));
       if (s.defaultProject) setProject(prev => (prev === 'global' ? s.defaultProject! : prev));
+      // Prefer a connected subscription CLI (Gemini when Cursor is down). Never stick on Ollama.
+      const connected = primaryProviders.find(id => s.providers?.[id]?.connected);
+      if (connected) setProvider(prev => (prev === 'ollama' || !s.providers?.[prev]?.connected ? connected : prev));
+      else if (s.defaultProvider && primaryProviders.includes(s.defaultProvider)) setProvider(prev => (prev === 'ollama' ? s.defaultProvider! : prev));
     }).catch(() => setStatus(null));
     refresh();
     const t = setInterval(refresh, 30000);
     return () => { stream.close(); clearInterval(t); };
   }, []);
 
-  useEffect(() => { if (!active && sessions.length) setActive(sessions[0].id); }, [sessions, active]);
+  // Prefer a non-Ollama session as the visible default when Cursor/Gemini/Chat are available.
+  useEffect(() => {
+    if (active || !sessions.length) return;
+    const preferred = sessions.find(s => s.provider !== 'ollama') || sessions[0];
+    setActive(preferred.id);
+  }, [sessions, active]);
 
-  // Prefer subscription providers — never leave UI default stuck on Ollama.
+  // Keep Cursor as the preferred selection. Only leave Ollama automatically.
+  // Session create still falls back via resolveNewChatProvider when Cursor is offline.
   useEffect(() => {
     if (!status?.providers) return;
-    if (provider !== 'ollama') return;
-    const next = primaryProviders.find(id => status.providers[id]?.connected) || 'cursor';
-    setProvider(next);
+    if (provider === 'ollama') {
+      const connected = primaryProviders.find(id => status.providers[id]?.connected);
+      setProvider(connected || 'cursor');
+    }
   }, [status, provider]);
+
+  function resolveNewChatProvider(): Provider {
+    if (provider !== 'ollama' && status?.providers?.[provider]?.connected) return provider;
+    const connected = primaryProviders.find(id => status?.providers?.[id]?.connected);
+    if (connected) return connected;
+    if (provider === 'ollama') return status?.defaultProvider && primaryProviders.includes(status.defaultProvider) ? status.defaultProvider : 'cursor';
+    return provider;
+  }
 
   useEffect(() => {
     const wakeOn = localStorage.getItem('jarvis.wakeWord') !== 'off';
@@ -162,45 +184,64 @@ export default function Dashboard() {
     if (!SR) return;
     let stopped = false;
     let rec: BrowserSpeechRecognition | null = null;
+    let restartTimer: ReturnType<typeof setTimeout> | null = null;
     const start = () => {
-      if (stopped) return;
+      if (stopped || wakeBusy.current) return;
+      if (voicePhase === 'listening' || voicePhase === 'transcribing' || voicePhase === 'speaking') return;
       try {
         rec = new SR();
         rec.continuous = true;
-        rec.interimResults = true;
+        rec.interimResults = false;
         rec.lang = 'en-US';
         rec.onresult = (event) => {
+          if (wakeBusy.current || Date.now() < wakeCooldownUntil.current) return;
           let text = '';
           for (let i = event.resultIndex; i < event.results.length; i++) text += event.results[i][0].transcript;
-          const norm = text.toLowerCase().replace(/[^a-z\s]/g, ' ');
-          if (/\bhey\s+jarvis\b|\bok\s+jarvis\b/.test(norm)) {
-            setWakeHeard(Date.now());
-            setWakeArmed(true);
-            setView('workspace');
-            setNotice('Listening — hey jarvis heard.');
-            speakText('Yes?');
-          }
+          if (!matchesWakeWord(text)) return;
+          wakeBusy.current = true;
+          wakeCooldownUntil.current = Date.now() + 3500;
+          setVoicePhase('wake');
+          setWakeHeard(Date.now());
+          setWakeArmed(true);
+          setView('workspace');
+          setNotice('Wake heard — listening for your request.');
+          void speakText('Yes?', {
+            onStart: () => setVoicePhase('speaking'),
+            onEnd: () => { setVoicePhase('listening'); wakeBusy.current = false; },
+          });
         };
-        rec.onerror = () => { /* permission / no-speech — retry softly */ };
-        rec.onend = () => { if (!stopped) setTimeout(start, 400); };
+        rec.onerror = () => { /* no-speech / aborted — soft retry */ };
+        rec.onend = () => {
+          if (stopped) return;
+          restartTimer = setTimeout(start, voicePhase === 'idle' || voicePhase === 'wake' ? 500 : 1200);
+        };
         rec.start();
+        if (voicePhase === 'idle') setVoicePhase('wake');
       } catch { /* mic denied */ }
     };
     start();
-    return () => { stopped = true; try { rec?.stop(); } catch { /* ignore */ } };
-  }, []);
+    return () => {
+      stopped = true;
+      if (restartTimer) clearTimeout(restartTimer);
+      try { rec?.stop(); } catch { /* ignore */ }
+      stopSpeaking();
+    };
+  }, [voicePhase === 'listening' || voicePhase === 'transcribing' || voicePhase === 'speaking' ? 'busy' : 'idle']);
 
   async function create(role: Role = 'chat') {
     if (creating) return;
     setCreating(true);
     const nextEffort = role === 'god' ? 'high' : effort;
     if (role === 'god') setEffort('high');
+    const nextProvider = resolveNewChatProvider();
+    if (nextProvider !== provider) setProvider(nextProvider);
     try {
-      const s = await api('sessions', 'POST', { role, effort: nextEffort, provider, project, memoryEnabled, skillIds: selectedSkills, browserControl: role === 'god' });
+      const s = await api('sessions', 'POST', { role, effort: nextEffort, provider: nextProvider, project, memoryEnabled, skillIds: selectedSkills, browserControl: role === 'god' });
       setSessions(p => p.some(x => x.id === s.id) ? p : [s, ...p]);
       setActive(s.id);
       setView('workspace');
       setMobile(false);
+      if (s.provider !== 'ollama' && primaryProviders.includes(s.provider)) setProvider(s.provider);
       if (s.provider === 'ollama' && role === 'god') setNotice('God mode refused Ollama — check Cursor / Gemini / ChatGPT login.');
       else if (s.provider === 'ollama') setNotice('Session landed on Ollama fallback. Prefer Cursor / Gemini / ChatGPT when connected.');
     } catch (e) { setError(String(e)); }
@@ -227,13 +268,13 @@ export default function Dashboard() {
     { id: 'voice', icon: MicIcon, name: 'Voice' },
   ];
   const heading = {
-    workspace: ['JARVIS.', 'Big ideas. Small questions. Your vault on the side.'],
-    agents: ['More minds. One desk.', 'Specialists plus God mode — subscription CLIs, browser when you need it.'],
-    connections: ['Accounts, ready.', 'Cursor, Gemini, and ChatGPT preferred. Ollama is local fallback only.'],
-    knowledge: ['One brain.', 'Beaumont Voss, Talvori, personal, and Zeta in a single vault.'],
-    skills: ['Your craft, on call.', 'Ecommerce packs + COG taste — load only what you need.'],
-    appearance: ['Quiet chrome.', 'Midnight, Paper, and restrained accents.'],
-    voice: ['Say hey jarvis.', 'Local Whisper first. Web Speech fallback. Speak on replies.'],
+    workspace: ['JARVIS', 'Local workspace. Vault on the side. Cursor first when connected.'],
+    agents: ['Agent desk', 'Research, build, review, and God mode on subscription CLIs.'],
+    connections: ['Connections', 'Cursor preferred. Gemini and ChatGPT next. Ollama is local fallback only.'],
+    knowledge: ['Knowledge', 'Beaumont Voss, Talvori, personal, and Zeta in one vault.'],
+    skills: ['Skills', 'Ecommerce packs and COG tools. Load only what you need.'],
+    appearance: ['Appearance', 'Midnight or Paper. One accent. Quiet chrome.'],
+    voice: ['Voice', 'FreeFlow preferred. macOS say for speech. Whisper as fallback.'],
   } as Record<string, [string, string]>;
 
   const connectionOrder: Provider[] = ['cursor', 'gemini', 'chatgpt', 'ollama'];
@@ -241,27 +282,31 @@ export default function Dashboard() {
   return (
     <div className="terminal-app" data-theme={appearance.theme === 'system' ? (systemDark ? 'dark' : 'light') : appearance.theme} data-palette={appearance.palette}>
       <aside className={`rail ${mobile ? 'is-open' : ''}`}>
-        <a className="brand" href="/" aria-label="JARVIS home">
-          <span className="brand-glyph">J<span>_</span></span>
-          <span>JARVIS<span className="brand-dot">.</span><small>PERSONAL AI WORKSPACE</small></span>
-        </a>
-        <div className="workspace-label"><span className="workspace-avatar">VN</span><span>Personal workspace<small>Local · on your Mac</small></span><ChevronRightIcon /></div>
-        <button className="new-session" onClick={() => create()} disabled={creating}><PlusIcon /> New conversation <kbd>⌘ J</kbd></button>
-        <label className="provider-picker">PROVIDER FOR NEW CHATS
-          <select aria-label="Provider for new chats" value={provider} onChange={e => setProvider(e.target.value as Provider)}>
-            {connectionOrder.map(id => (
-              <option key={id} value={id}>{providerNames[id]}{id === 'ollama' ? ' · local fallback' : primaryProviders.includes(id) ? ' · preferred' : ''}{status?.providers?.[id]?.connected ? ' · connected' : ' · setup needed'}</option>
-            ))}
-          </select>
-        </label>
-        <nav aria-label="Main navigation">
+        <div className="rail-brand">
+          <a className="brand" href="/" aria-label="JARVIS home">
+            <RailGlyph />
+            <span className="brand-word">JARVIS<span className="brand-dot">.</span><small>PERSONAL AI WORKSPACE</small></span>
+          </a>
+          <div className="workspace-label"><span className="workspace-avatar">VN</span><span>Personal workspace<small>Local · on your Mac</small></span><ChevronRightIcon /></div>
+        </div>
+        <div className="rail-compose">
+          <button className="new-session" onClick={() => create()} disabled={creating}><PlusIcon /> New conversation <kbd>⌘ J</kbd></button>
+          <label className="provider-picker">PROVIDER FOR NEW CHATS
+            <select aria-label="Provider for new chats" value={provider} onChange={e => setProvider(e.target.value as Provider)}>
+              {connectionOrder.map(id => (
+                <option key={id} value={id}>{providerNames[id]}{id === 'ollama' ? ' · local fallback' : primaryProviders.includes(id) ? ' · preferred' : ''}{status?.providers?.[id]?.connected ? ' · connected' : ' · setup needed'}</option>
+              ))}
+            </select>
+          </label>
+        </div>
+        <nav className="rail-nav" aria-label="Main navigation">
           {nav.map(item => (
             <button className={view === item.id ? 'selected' : ''} key={item.id} onClick={() => { setView(item.id); setMobile(false); }}>
               <item.icon />{item.name}{item.id === 'workspace' && <span>{sessions.length.toString().padStart(2, '0')}</span>}
             </button>
           ))}
         </nav>
-        <div className="project-controls">
+        <div className="rail-context project-controls">
           <label className="provider-picker">PROJECT FOR NEW CHATS
             <select aria-label="Project for new chats" value={project} onChange={e => setProject(e.target.value)}>
               <option value="beaumont-voss">Beaumont Voss · primary</option>
@@ -271,30 +316,31 @@ export default function Dashboard() {
           </label>
           <label className="memory-switch"><input type="checkbox" checked={memoryEnabled} onChange={e => setMemoryEnabled(e.target.checked)} />Use saved context<span>{selectedSkills.length ? `${selectedSkills.length} skills` : ''}</span></label>
         </div>
-        <div className="rail-section"><span>CONVERSATIONS</span><button title="New conversation" onClick={() => create()}><PlusIcon /></button></div>
-        <label className="session-search"><MagnifyingGlassIcon /><input id="session-search" placeholder="Find a conversation" aria-label="Find a conversation" value={search} onChange={e => setSearch(e.target.value)} /><kbd>⌘K</kbd></label>
-        <div className="session-list">
-          {sessions.filter(s => s.title.toLowerCase().includes(search.toLowerCase())).map(s => (
-            <button key={s.id} className={active === s.id ? 'active' : ''} onClick={() => { setActive(s.id); setView('workspace'); setMobile(false); }}>
-              <span className={`session-dot ${s.status}`} />
-              <span>{s.title}<small>{providerNames[s.provider || 'chatgpt']} · {s.status === 'running' ? 'working' : s.messages.length / 2 + ' turns'}</small></span>
-            </button>
-          ))}
-          {!sessions.length && <p className="rail-empty">Your conversations will live here.<br />Start something good.</p>}
+        <div className="rail-sessions">
+          <div className="rail-section"><span>CONVERSATIONS</span><button title="New conversation" onClick={() => create()}><PlusIcon /></button></div>
+          <label className="session-search"><MagnifyingGlassIcon /><input id="session-search" placeholder="Find a conversation" aria-label="Find a conversation" value={search} onChange={e => setSearch(e.target.value)} /><kbd>⌘K</kbd></label>
+          <div className="session-list">
+            {sessions.filter(s => s.title.toLowerCase().includes(search.toLowerCase())).map(s => (
+              <button key={s.id} className={active === s.id ? 'active' : ''} onClick={() => { setActive(s.id); setView('workspace'); setMobile(false); }}>
+                <span className={`session-dot ${s.status}`} />
+                <span>{s.title}<small>{providerNames[s.provider || 'chatgpt']} · {s.status === 'running' ? 'working' : s.messages.length / 2 + ' turns'}</small></span>
+              </button>
+            ))}
+            {!sessions.length && <p className="rail-empty">Your conversations will live here.<br />Start something good.</p>}
+          </div>
         </div>
-        <div className="rail-footer"><span className={`connection-dot ${online ? 'connected' : ''}`} /><span>Local bridge<small>{online ? 'Connected to your Mac' : 'Reconnecting…'}</small></span><span className="version">v0.1</span></div>
+        <div className="rail-footer"><span className={`connection-dot ${online ? 'connected' : ''}`} /><span>Local bridge<small>{online ? 'Connected to your Mac' : 'Reconnecting…'}</small></span><span className={`voice-phase-pill phase-${voicePhase}`}>{phaseLabel(voicePhase)}</span></div>
       </aside>
       {mobile && <button className="mobile-scrim" aria-label="Close menu" onClick={() => setMobile(false)} />}
       <div className="main-shell">
         <header className="topbar">
           <button className="mobile-toggle" aria-label="Open menu" onClick={() => setMobile(!mobile)}><HamburgerMenuIcon /></button>
           <div className="breadcrumb">JARVIS <span>/</span> <strong>{viewNames[view]}</strong></div>
-          <div className="top-status"><span className={`connection-dot ${connectedCount ? 'connected' : ''}`} />{status ? `${connectedCount} account${connectedCount === 1 ? '' : 's'} connected` : 'Checking connections'}</div>
+          <div className="top-status"><span className={`voice-phase-pill phase-${voicePhase}`}>{phaseLabel(voicePhase)}</span><span className={`connection-dot ${connectedCount ? 'connected' : ''}`} />{status ? `${connectedCount} account${connectedCount === 1 ? '' : 's'} connected` : 'Checking connections'}</div>
           <button className="avatar" title="Your personal workspace">VN</button>
         </header>
         <div className="workspace-heading">
           <div>
-            <div className="eyebrow">YOUR SPACE TO THINK & BUILD</div>
             <h1>{heading[view]?.[0]}</h1>
             <p>{heading[view]?.[1]}</p>
           </div>
@@ -324,7 +370,7 @@ export default function Dashboard() {
                   <button title="New conversation" onClick={() => create()}><PlusIcon /></button>
                 </div>
                 {current
-                  ? <Chat key={current.id} session={current} connected={!!status?.providers?.[current.provider || 'chatgpt']?.connected} onError={setError} wakeToken={wakeHeard} wakeArmed={wakeArmed} onWakeConsumed={() => setWakeArmed(false)} />
+                  ? <Chat key={current.id} session={current} connected={!!status?.providers?.[current.provider || 'chatgpt']?.connected} onError={setError} wakeToken={wakeHeard} wakeArmed={wakeArmed} onWakeConsumed={() => setWakeArmed(false)} onPhase={setVoicePhase} />
                   : <div className="welcome-wrap"><Welcome onCreate={create} /><button className="start-button" onClick={() => create()} disabled={creating}>Start a conversation <ArrowTopRightIcon /></button></div>}
               </section>
               {split && other ? (
@@ -464,9 +510,9 @@ function Metric({ label, value, detail, live = false }: { label: string; value: 
 
 function Welcome({ onCreate }: { onCreate?: (r: Role) => void }) {
   return (
-    <div className="welcome">
-      <div className="terminal-symbol brand-hero">JARVIS<span>_</span></div>
-      <div className="eyebrow">PERSONAL AI WORKSPACE</div>
+    <div className="welcome welcome-taste">
+      <Hero3D />
+      <div className="eyebrow">PERSONAL AI WORKSPACE · CLASSIC B/W</div>
       <h2>What's on your mind?</h2>
       <p>Work things out, chase an idea, or make something worth keeping — with your vault beside you.</p>
       {onCreate && (
@@ -481,7 +527,7 @@ function Welcome({ onCreate }: { onCreate?: (r: Role) => void }) {
   );
 }
 
-function Chat({ session: s, connected, onError, wakeToken = 0, wakeArmed = false, onWakeConsumed }: { session: Session; connected: boolean; onError: (s: string) => void; wakeToken?: number; wakeArmed?: boolean; onWakeConsumed?: () => void }) {
+function Chat({ session: s, connected, onError, wakeToken = 0, wakeArmed = false, onWakeConsumed, onPhase }: { session: Session; connected: boolean; onError: (s: string) => void; wakeToken?: number; wakeArmed?: boolean; onWakeConsumed?: () => void; onPhase?: (p: VoicePhase) => void }) {
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
   const [copied, setCopied] = useState('');
@@ -494,32 +540,42 @@ function Chat({ session: s, connected, onError, wakeToken = 0, wakeArmed = false
   const chunksRef = useRef<Blob[]>([]);
   const streamRef = useRef<MediaStream | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const listenTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const micLock = useRef(false);
+  const draftRef = useRef('');
   const running = s.status === 'running';
   const voiceIn = localStorage.getItem('jarvis.voiceIn') !== 'off';
   const voiceOut = localStorage.getItem('jarvis.voiceOut') !== 'off';
   const autoSpeak = localStorage.getItem('jarvis.autoSpeak') === 'on';
+  const autoSend = localStorage.getItem('jarvis.autoSend') === 'on';
   const lastSpoken = useRef('');
+  draftRef.current = draft;
 
   useEffect(() => {
     if (pinned.current && list.current) list.current.scrollTop = list.current.scrollHeight;
   }, [s.messages, s.activity]);
 
   useEffect(() => {
+    if (running) onPhase?.('thinking');
+  }, [running]);
+
+  useEffect(() => {
     if (!autoSpeak || !voiceOut || running) return;
     const last = [...s.messages].reverse().find(m => m.role === 'assistant' && m.content);
     if (last && last.content && last.id !== lastSpoken.current) {
       lastSpoken.current = last.id;
-      speakText(last.content);
+      void speakText(last.content, { onStart: () => onPhase?.('speaking'), onEnd: () => onPhase?.('idle') });
     }
   }, [s.messages, running, autoSpeak, voiceOut]);
 
-  async function send() {
-    if (!draft.trim() || running || sending) return;
-    const prompt = draft;
+  async function send(text?: string) {
+    const prompt = (text ?? draft).trim();
+    if (!prompt || running || sending) return;
     setSending(true);
     pinned.current = true;
+    onPhase?.('thinking');
     try { await api(`sessions/${s.id}/message`, 'POST', { prompt }); setDraft(''); }
-    catch (e) { onError(String(e)); }
+    catch (e) { onError(String(e)); onPhase?.('idle'); }
     finally { setSending(false); }
   }
 
@@ -530,10 +586,16 @@ function Chat({ session: s, connected, onError, wakeToken = 0, wakeArmed = false
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
+  function clearListenTimer() {
+    if (listenTimer.current) { clearTimeout(listenTimer.current); listenTimer.current = null; }
+  }
+
   function startWebSpeech() {
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SR) {
       onError('Web Speech is unavailable here. Use Mac Dictation (press Fn twice) in the composer, or enable Voice settings.');
+      onPhase?.('idle');
+      micLock.current = false;
       return;
     }
     const rec = new SR();
@@ -541,24 +603,45 @@ function Chat({ session: s, connected, onError, wakeToken = 0, wakeArmed = false
     rec.continuous = false;
     rec.interimResults = true;
     rec.lang = 'en-US';
-    rec.onresult = (event: { resultIndex: number; results: ArrayLike<{ 0: { transcript: string } }> }) => {
-      let text = '';
-      for (let i = event.resultIndex; i < event.results.length; i++) text += event.results[i][0].transcript;
-      if (text) setDraft(prev => (prev ? prev + ' ' : '') + text.trim());
+    let finalText = '';
+    rec.onresult = (event: { resultIndex: number; results: ArrayLike<{ 0: { transcript: string }; isFinal?: boolean }> }) => {
+      let chunk = '';
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        chunk += event.results[i][0].transcript;
+        if ((event.results[i] as { isFinal?: boolean }).isFinal) finalText += event.results[i][0].transcript + ' ';
+      }
+      if (chunk) setDraft(prev => {
+        const base = prev.replace(/\s*…$/, '');
+        return (base ? base + ' ' : '') + chunk.trim() + (((event.results[event.results.length - 1] as { isFinal?: boolean })?.isFinal) ? '' : ' …');
+      });
     };
-    rec.onerror = () => { setListening(false); setMicMode('idle'); onError('Microphone capture failed. Try Mac Dictation (Fn Fn) instead.'); };
-    rec.onend = () => { setListening(false); setMicMode('idle'); };
+    rec.onerror = () => {
+      setListening(false); setMicMode('idle'); micLock.current = false; onPhase?.('idle');
+      onError('Microphone capture failed. Try Mac Dictation (Fn Fn) instead.');
+    };
+    rec.onend = () => {
+      setListening(false); setMicMode('idle'); micLock.current = false;
+      const text = (finalText || draftRef.current).replace(/\s*…$/g, '').trim();
+      if (text) {
+        setDraft(text);
+        if (autoSend && connected) void send(text);
+        else onPhase?.('idle');
+      } else onPhase?.('idle');
+    };
     setListening(true);
     setMicMode('webspeech');
+    onPhase?.('listening');
     rec.start();
   }
 
   async function stopWhisper() {
     const recorder = mediaRef.current;
-    if (!recorder || recorder.state !== 'recording') return;
+    if (!recorder || recorder.state !== 'recording') { micLock.current = false; return; }
+    clearListenTimer();
+    onPhase?.('transcribing');
     await new Promise<void>((resolve) => {
       recorder.onstop = () => resolve();
-      recorder.stop();
+      try { recorder.stop(); } catch { resolve(); }
     });
     streamRef.current?.getTracks().forEach(t => t.stop());
     streamRef.current = null;
@@ -567,6 +650,12 @@ function Chat({ session: s, connected, onError, wakeToken = 0, wakeArmed = false
     mediaRef.current = null;
     setListening(false);
     setMicMode('idle');
+    if (blob.size < 1200) {
+      micLock.current = false;
+      onPhase?.('idle');
+      startWebSpeech();
+      return;
+    }
     try {
       const body = await blob.arrayBuffer();
       const bytes = new Uint8Array(body);
@@ -574,45 +663,71 @@ function Chat({ session: s, connected, onError, wakeToken = 0, wakeArmed = false
       for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
       const audioBase64 = btoa(binary);
       const result = await api('speech/transcribe', 'POST', { audioBase64, filename: 'recording.webm' });
-      if (result.text) setDraft(prev => (prev ? prev + ' ' : '') + String(result.text).trim());
+      const text = String(result.text || '').trim();
+      if (text) {
+        setDraft(prev => (prev ? prev + ' ' : '') + text);
+        if (autoSend && connected) await send((draftRef.current ? draftRef.current + ' ' : '') + text);
+        else onPhase?.('idle');
+      } else {
+        onPhase?.('idle');
+        startWebSpeech();
+        return;
+      }
     } catch (e) {
       onError(String(e));
       startWebSpeech();
+      return;
+    } finally {
+      micLock.current = false;
     }
   }
 
   async function toggleMic(forceStart = false) {
+    if (micLock.current && forceStart) return;
     if (listening && !forceStart) {
       if (micMode === 'whisper') await stopWhisper();
-      else { recognitionRef.current?.stop(); setListening(false); setMicMode('idle'); }
+      else { recognitionRef.current?.stop(); setListening(false); setMicMode('idle'); onPhase?.('idle'); }
       return;
     }
     if (listening && forceStart) return;
+    micLock.current = true;
     try {
       const health = await fetch('/terminal-api/speech/health').then(r => r.json()).catch(() => null);
       if (health?.whisper?.available && navigator.mediaDevices?.getUserMedia) {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
         streamRef.current = stream;
         chunksRef.current = [];
-        const recorder = new MediaRecorder(stream);
+        const mime = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : undefined;
+        const recorder = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream);
         mediaRef.current = recorder;
         recorder.ondataavailable = (e) => { if (e.data.size) chunksRef.current.push(e.data); };
-        recorder.start();
+        recorder.start(250);
         setListening(true);
         setMicMode('whisper');
+        onPhase?.('listening');
+        clearListenTimer();
+        // Auto-stop after ~8s so wake→listen→transcribe doesn't stick forever.
+        listenTimer.current = setTimeout(() => { void stopWhisper(); }, forceStart ? 8000 : 20000);
         return;
       }
     } catch {
-      /* fall through to Web Speech */
+      /* fall through */
     }
     startWebSpeech();
   }
 
+  useEffect(() => () => {
+    clearListenTimer();
+    try { recognitionRef.current?.stop(); } catch { /* ignore */ }
+    try { mediaRef.current?.state === 'recording' && mediaRef.current.stop(); } catch { /* ignore */ }
+    streamRef.current?.getTracks().forEach(t => t.stop());
+  }, []);
+
   useEffect(() => {
     if (!wakeToken || !wakeArmed) return;
     textareaRef.current?.focus();
-    void toggleMic(true);
-    onWakeConsumed?.();
+    const t = setTimeout(() => { void toggleMic(true); onWakeConsumed?.(); }, 400);
+    return () => clearTimeout(t);
   }, [wakeToken, wakeArmed]);
 
   return (
@@ -634,7 +749,7 @@ function Chat({ session: s, connected, onError, wakeToken = 0, wakeArmed = false
               <span>{m.role === 'user' ? 'YOU' : 'JARVIS'}</span>
               <span className="message-actions">
                 {m.role === 'assistant' && m.content && voiceOut && (
-                  <button title="Speak message" aria-label="Speak message" onClick={() => speakText(m.content)}><SpeakerLoudIcon /></button>
+                  <button title="Speak message" aria-label="Speak message" onClick={() => void speakText(m.content, { onStart: () => onPhase?.('speaking'), onEnd: () => onPhase?.('idle') })}><SpeakerLoudIcon /></button>
                 )}
                 {m.content && (
                   <button title="Copy message" onClick={() => navigator.clipboard.writeText(m.content).then(() => { setCopied(m.id); setTimeout(() => setCopied(''), 1500); }).catch(() => onError('Clipboard is unavailable. Select and copy the text.'))}>
@@ -664,12 +779,12 @@ function Chat({ session: s, connected, onError, wakeToken = 0, wakeArmed = false
               )}
               {running
                 ? <button className="send-button stop" aria-label="Stop response" onClick={() => api(`sessions/${s.id}/stop`, 'POST').catch(e => onError(String(e)))}><StopIcon /></button>
-                : <button className="send-button" aria-label="Send message" disabled={!draft.trim() || sending || !connected} onClick={send}><ArrowUpIcon /></button>}
+                : <button className="send-button" aria-label="Send message" disabled={!draft.trim() || sending || !connected} onClick={() => void send()}><ArrowUpIcon /></button>}
             </div>
           </div>
         </div>
         <div className="composer-hint">
-          <span>{running ? 'Working in the background. You can switch sessions.' : !connected ? `Connect ${providerNames[s.provider || 'chatgpt']} in Connections to send messages.` : listening ? (micMode === 'whisper' ? 'Recording… tap mic to transcribe with Whisper' : 'Listening…') : 'Enter to send · Mic (Whisper) · say hey jarvis'}</span>
+          <span>{running ? 'Working in the background. You can switch sessions.' : !connected ? `Connect ${providerNames[s.provider || 'chatgpt']} in Connections to send messages.` : listening ? (micMode === 'whisper' ? 'Listening… tap mic to finish & transcribe' : 'Listening…') : 'Enter · FreeFlow Fn dictate · Mic fallback · hey jarvis'}</span>
           <span>{s.elapsedMs ? `${(s.elapsedMs / 1000).toFixed(1)}s` : 'Free / subscription'}</span>
         </div>
       </div>

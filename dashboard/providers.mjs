@@ -19,7 +19,8 @@ export const GOD_MODE = {
   maxParallel: 6,
   streaming: true,
   effort: 'high',
-  roleBoost: 'You are JARVIS God mode: fast, decisive, tool-capable. Prefer parallel investigation. Use browser/computer-use tools when the task needs live web or UI verification. Stay on subscription CLIs — never invent paid API keys. Beaumont Voss is the primary project unless told otherwise.',
+  browserTools: ['playwright-mcp','auto-browser'],
+  roleBoost: 'You are JARVIS God mode: fast, decisive, tool-capable. Prefer parallel investigation. When browserControl is on, use Playwright MCP (`playwright` / @playwright/mcp) and/or Auto Browser MCP (local Docker at 127.0.0.1:8000) for live web/UI checks — paths under ~/Desktop/JARVIS/skills/github/{playwright-mcp,auto-browser}. Prefer parallel tool calls. Stay on subscription CLIs (Cursor agent, Gemini agy, ChatGPT codex) — never invent paid API keys or fall back to Ollama. Beaumont Voss is the primary project unless told otherwise.',
 };
 export function cleanEnvironment(source) {
   const env={...source};

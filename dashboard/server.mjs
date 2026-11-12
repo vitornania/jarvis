@@ -14,11 +14,30 @@ const home = path.resolve(root, '..');
 const dataDir = path.join(root, 'dashboard', '.data');
 const staticDir = path.join(root, 'src/openjarvis/server/static');
 const port = Number(process.env.TERMINAL_PORT || 4318);
-const env = cleanEnvironment({...process.env, PATH:`${process.env.HOME}/.local/bin:/opt/homebrew/bin:/usr/local/bin:${process.env.PATH||''}`});
+const env = cleanEnvironment({
+  ...process.env,
+  PATH:`${process.env.HOME}/.local/bin:/opt/homebrew/bin:/usr/local/bin:${process.env.PATH||''}`,
+  // Cursor agent on macOS keychain ACL often fails headless; file store + auth.json is reliable.
+  AGENT_CLI_CREDENTIAL_STORE: process.env.AGENT_CLI_CREDENTIAL_STORE || 'file',
+});
 let jarvisConfig={vaultPath:path.resolve(home,'vault'),brand:'JARVIS',whisperModel:path.resolve(home,'models/whisper/ggml-tiny.bin'),whisperBin:'whisper-cli',defaultProject:'beaumont-voss',autoHarvest:true,projectAliases:{}};
 try{jarvisConfig={...jarvisConfig,...JSON.parse(await readFile(path.join(root,'dashboard','jarvis.config.json'),'utf8'))};}catch{}
 await mkdir(dataDir, { recursive: true, mode: 0o700 });
 await mkdir(path.join(dataDir,'audio'), { recursive: true, mode: 0o700 });
+async function syncCursorAuthFile(){
+  try{
+    const dest=path.join(process.env.HOME,'.cursor','auth.json');
+    await mkdir(path.dirname(dest),{recursive:true,mode:0o700});
+    const access=await exec('/usr/bin/security',['find-generic-password','-s','cursor-access-token','-a','cursor-user','-w'],{timeout:5000});
+    const refresh=await exec('/usr/bin/security',['find-generic-password','-s','cursor-refresh-token','-a','cursor-user','-w'],{timeout:5000});
+    const accessToken=(access.stdout||'').trim();
+    const refreshToken=(refresh.stdout||'').trim();
+    if(!accessToken||!refreshToken)return false;
+    await writeFile(dest,JSON.stringify({accessToken,refreshToken},null,2),{mode:0o600});
+    return true;
+  }catch{return false;}
+}
+await syncCursorAuthFile();
 let sessions = [];
 try { sessions = JSON.parse(await readFile(path.join(dataDir, 'sessions.json'), 'utf8')); } catch {}
 for (const s of sessions) s.provider ||= 'chatgpt';
@@ -62,6 +81,31 @@ function whisperReady(){
   const model=jarvisConfig.whisperModel;
   const bin=jarvisConfig.whisperBin||'whisper-cli';
   return {available:!!(existsSync(model)&&whichCache.whisper),model,bin,engine:'whisper.cpp'};
+}
+function freeflowStatus(){
+  const candidates=[
+    '/Applications/FreeFlow.app',
+    path.join(process.env.HOME||'','Applications/FreeFlow.app'),
+    path.join(home,'tools/FreeFlow.app'),
+    path.join(home,'skills/github/freeflow/build/FreeFlow.app'),
+    path.join(home,'skills/github/freeflow/build/FreeFlow Dev.app'),
+  ];
+  const installed=candidates.find(p=>existsSync(p))||null;
+  const source=path.join(home,'skills/github/freeflow');
+  return {
+    id:'freeflow',
+    name:'FreeFlow',
+    preferred:true,
+    role:'stt',
+    installed:!!installed,
+    path:installed,
+    source:existsSync(source)?source:null,
+    dmg:'https://github.com/zachlatta/freeflow/releases/latest/download/FreeFlow.dmg',
+    repo:'https://github.com/zachlatta/freeflow',
+    hint:installed
+      ?'Preferred free dictation — focus the JARVIS composer, hold Fn (or your FreeFlow shortcut) to talk; text pastes in.'
+      :'Install FreeFlow (free OSS Wispr-style dictation). Focus composer → hold Fn to dictate. Optional free Groq key or local OpenAI-compatible STT.',
+  };
 }
 const whichCache={whisper:null,ffmpeg:null,agy:null};
 whichCache.whisper=await whichBin(jarvisConfig.whisperBin||'whisper-cli');
@@ -123,6 +167,10 @@ async function status() {
   fallbackProviders:FALLBACK_PROVIDERS,
   defaultProject:jarvisConfig.defaultProject||'beaumont-voss',
   godMode:GOD_MODE,
+  browserTools:{
+    playwrightMcp:{path:path.join(home,'skills/github/playwright-mcp'),installed:existsSync(path.join(home,'skills/github/playwright-mcp')),mcp:'npx -y @playwright/mcp@latest'},
+    autoBrowser:{path:path.join(home,'skills/github/auto-browser'),installed:existsSync(path.join(home,'skills/github/auto-browser')),start:'cd ~/Desktop/JARVIS/skills/github/auto-browser && docker compose up -d',url:'http://127.0.0.1:8000'},
+  },
   memoryHealth:brain.memoryHealth,
   speech:{whisper,webSpeechFallback:true,wakeWord:jarvisConfig.wakeWord||'hey jarvis'},
  };
@@ -186,7 +234,7 @@ async function run(s, prompt, res) {
     return;
   }
   const roleText=s.role==='god'
-    ? `${roles.god}\n\nFLAGS: browserControl=true · streaming=on · maxParallel=${GOD_MODE.maxParallel} · providerPrefer=${GOD_MODE.providerPrefer.join(',')}. Use browser/computer-use/Playwright/CDP tools when the task needs live web or UI checks. Prefer parallel tool calls. Stay on Cursor agent / Gemini agy / ChatGPT codex — never invent paid API keys or fall back to Ollama in God mode.`
+    ? `${roles.god}\n\nFLAGS: browserControl=true · streaming=on · maxParallel=${GOD_MODE.maxParallel} · providerPrefer=${GOD_MODE.providerPrefer.join(',')} · browserTools=${(GOD_MODE.browserTools||[]).join(',')}. Prefer Playwright MCP (@playwright/mcp) for structured browser automation; use Auto Browser (Docker :8000) when human takeover / auth profiles are needed. Prefer parallel tool calls. Stay on Cursor agent / Gemini agy / ChatGPT codex — never invent paid API keys or fall back to Ollama in God mode.`
     : roles[s.role];
   const call=invocation(s,contextualPrompt,roleText);
   const child=spawn(executable(s.provider),call.args,{cwd:root,env,stdio:['pipe','pipe','pipe'],detached:true});
@@ -315,7 +363,78 @@ const server=http.createServer(async(req,res)=>{
     }
     if(p==='/terminal-api/speech/health'&&req.method==='GET'){
       const whisper=whisperReady();
-      return json(res,200,{available:whisper.available,whisper,fallback:'webspeech',wakeWord:'hey jarvis'});
+      let voices=[];
+      try{
+        const r=await exec('say',['-v','?'],{env,timeout:8000,maxBuffer:2_000_000});
+        voices=String(r.stdout||'').split('\n').map(line=>{
+          const m=line.match(/^(.+?)\s+([a-z]{2}[_-][A-Z]{2})\s+#\s*(.*)$/);
+          if(!m)return null;
+          const name=m[1].trim(),lang=m[2],note=m[3]||'';
+          const preferred=['Samantha (English (US))','Samantha','Flo (English (US))','Eddy (English (US))','Allison','Ava','Zoe','Daniel','Karen','Moira','Alex','Tom'];
+          const rank=Math.max(0,...preferred.map((p,i)=>{
+            if(name===p)return 100-i;
+            // Bare names (Samantha) match only US/English variants — never Flo (Chinese…)
+            if(!p.includes('(')&&(name===p||name.startsWith(p+' (English')))return 100-i;
+            return 0;
+          }));
+          const enRank=/^en/i.test(lang)||/\(English/i.test(name)?Math.max(rank,40):rank;
+          return {name,lang,note,rank:enRank};
+        }).filter(Boolean).sort((a,b)=>b.rank-a.rank||a.name.localeCompare(b.name));
+      }catch{}
+      const defaultVoice=(voices.find(v=>v.rank>=90)||voices.find(v=>v.rank>=40)||voices[0])?.name||'Samantha';
+      const freeflow=freeflowStatus();
+      return json(res,200,{
+        available:whisper.available||freeflow.installed,
+        whisper,
+        freeflow,
+        sttPrefer:['freeflow','whisper','webspeech'],
+        fallback:'webspeech',
+        wakeWord:'hey jarvis',
+        tts:{engine:'macos-say',voices,defaultVoice},
+      });
+    }
+    if(p==='/terminal-api/speech/freeflow/open'&&req.method==='POST'){
+      const ff=freeflowStatus();
+      if(ff.installed){
+        await exec('/usr/bin/open',['-a',ff.path],{env,timeout:10000});
+        return json(res,200,{ok:true,message:'FreeFlow opened. Focus the JARVIS composer, then hold Fn to dictate.'});
+      }
+      // Offer DMG download into tools/ then open it for install
+      const dmg=path.join(home,'tools','FreeFlow.dmg');
+      await mkdir(path.join(home,'tools'),{recursive:true});
+      if(!existsSync(dmg)){
+        try{
+          await exec('curl',['-fsSL','-o',dmg,ff.dmg],{env,timeout:180000});
+        }catch(e){
+          return json(res,503,{error:`Could not download FreeFlow.dmg: ${e.message}. Open ${ff.dmg} manually.`});
+        }
+      }
+      await exec('/usr/bin/open',[dmg],{env,timeout:10000});
+      return json(res,200,{ok:true,message:'Opening FreeFlow.dmg — drag to Applications, then Refresh Voice. Optional free Groq key in FreeFlow settings, or point it at local Whisper/Ollama-compatible STT.'});
+    }
+    if(p==='/terminal-api/speech/stop'&&req.method==='POST'){
+      try{await exec('killall',['say'],{env,timeout:2000});}catch{}
+      try{await exec('killall',['afplay'],{env,timeout:2000});}catch{}
+      return json(res,200,{ok:true});
+    }
+    if(p==='/terminal-api/speech/speak'&&req.method==='POST'){
+      const b=await body(req);
+      const text=String(b.text||'').replace(/\s+/g,' ').trim().slice(0,4000);
+      if(!text)return json(res,400,{error:'text required'});
+      let voice=String(b.voice||'').trim();
+      if(!voice){
+        try{
+          const list=String((await exec('say',['-v','?'],{env,timeout:8000,maxBuffer:2_000_000})).stdout||'');
+          voice=(list.match(/^Samantha \(English \(US\)\)/m)||list.match(/^Samantha\s/m)||list.match(/^Flo \(English \(US\)\)/m)||list.match(/^Eddy \(English \(US\)\)/m)||['Samantha'])[0].replace(/\s{2,}.*$/,'').trim();
+        }catch{voice='Samantha';}
+      }
+      try{
+        // Local-only dashboard: speak on Mac speakers with a natural system voice (free).
+        await exec('say',['-v',voice,text],{env,timeout:180000});
+        return json(res,200,{ok:true,engine:'macos-say',voice});
+      }catch(e){
+        return json(res,503,{error:e.message||'macOS say failed'});
+      }
     }
     if(p==='/terminal-api/speech/transcribe'&&req.method==='POST'){
       const ctype=String(req.headers['content-type']||'');
@@ -348,12 +467,20 @@ const server=http.createServer(async(req,res)=>{
       if(b.provider&&!CHAT_PROVIDERS.includes(b.provider))return json(res,400,{error:'Unknown provider'});
       const role=Object.hasOwn(roles,b.role)?b.role:'chat';
       let provider=b.provider||'cursor';
-      // Never silently default new chats to Ollama — subscription CLIs first.
-      if(!b.provider||provider==='ollama'&&role==='god'){
+      // Prefer connected subscription CLIs (Gemini when Cursor is down). Never sticky-default to Ollama.
+      {
         const snap=await status();
-        provider=pickDefaultProvider(snap.providers);
+        const connectedPreferred=PRIMARY_PROVIDERS.find(id=>snap.providers?.[id]?.connected);
+        if(!b.provider||role==='god'&&provider==='ollama'){
+          provider=pickDefaultProvider(snap.providers);
+        }else if(provider!=='ollama'&&!snap.providers?.[provider]?.connected&&connectedPreferred){
+          // e.g. UI still says Cursor but Cursor is disconnected → Gemini/ChatGPT
+          provider=connectedPreferred;
+        }else if(provider==='ollama'&&!b.provider){
+          provider=pickDefaultProvider(snap.providers);
+        }
+        if(provider==='ollama'&&role==='god')provider=pickDefaultProvider(snap.providers);
       }
-      if(provider==='ollama'&&!b.provider){provider='cursor';}
       const projectRaw=typeof b.project==='string'?b.project:(jarvisConfig.defaultProject||'beaumont-voss');
       const project=resolveProjectId(projectRaw,jarvisConfig.projectAliases||{},jarvisConfig.defaultProject||'beaumont-voss');
       const effort=role==='god'?'high':(['low','medium','high'].includes(b.effort)?b.effort:'low');

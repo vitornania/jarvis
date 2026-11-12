@@ -1,0 +1,26 @@
+{
+  "mcpServers": {
+    "playwright": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@playwright/mcp@latest"
+      ]
+    },
+    "auto-browser": {
+      "url": "http://127.0.0.1:8000/mcp",
+      "headers": {
+        "Authorization": "Bearer ${AUTO_BROWSER_TOKEN}"
+      },
+      "_comment": "Start with: cd ~/Desktop/JARVIS/skills/github/auto-browser && docker compose up -d. Token in data/api-token."
+    },
+    "headroom": {
+      "command": "headroom",
+      "args": [
+        "mcp",
+        "serve"
+      ],
+      "_comment": "Optional context compression MCP. Install: uv tool install --python 3.13 \"headroom-ai[all]\""
+    }
+  }
+}
