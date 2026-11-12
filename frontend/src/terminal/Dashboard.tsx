@@ -26,6 +26,22 @@ type Session = {
   usage?: { input_tokens: number; cached_input_tokens: number; output_tokens: number };
 };
 type Status = { providers: Record<string, ProviderStatus>; connected: boolean; provider: string; model: string; openjarvis: boolean; workspace: string; vaultPath?: string; brand?: string };
+type BrowserSpeechRecognition = {
+  continuous: boolean;
+  interimResults: boolean;
+  lang: string;
+  onresult: ((event: { resultIndex: number; results: ArrayLike<{ 0: { transcript: string } }> }) => void) | null;
+  onerror: (() => void) | null;
+  onend: (() => void) | null;
+  start: () => void;
+  stop: () => void;
+};
+declare global {
+  interface Window {
+    SpeechRecognition?: new () => BrowserSpeechRecognition;
+    webkitSpeechRecognition?: new () => BrowserSpeechRecognition;
+  }
+}
 
 const roleNames = { chat: 'Conversation', research: 'Research', build: 'Build', review: 'Review' };
 const roleIcons = { chat: ChatBubbleIcon, research: MagnifyingGlassIcon, build: CodeIcon, review: ReaderIcon };
@@ -74,6 +90,8 @@ export default function Dashboard() {
     return { theme: 'dark', palette: 'mono' };
   });
   const [systemDark, setSystemDark] = useState(window.matchMedia('(prefers-color-scheme: dark)').matches);
+  const [wakeHeard, setWakeHeard] = useState(0);
+  const [wakeArmed, setWakeArmed] = useState(false);
 
   async function refreshBrain() { try { setBrain(await api('brain')); } catch (e) { setError(String(e)); } }
   useEffect(() => { void refreshBrain(); }, [view]);
@@ -124,6 +142,41 @@ export default function Dashboard() {
 
   useEffect(() => { if (!active && sessions.length) setActive(sessions[0].id); }, [sessions, active]);
 
+  useEffect(() => {
+    const wakeOn = localStorage.getItem('jarvis.wakeWord') !== 'off';
+    if (!wakeOn) return;
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) return;
+    let stopped = false;
+    let rec: BrowserSpeechRecognition | null = null;
+    const start = () => {
+      if (stopped) return;
+      try {
+        rec = new SR();
+        rec.continuous = true;
+        rec.interimResults = true;
+        rec.lang = 'en-US';
+        rec.onresult = (event) => {
+          let text = '';
+          for (let i = event.resultIndex; i < event.results.length; i++) text += event.results[i][0].transcript;
+          const norm = text.toLowerCase().replace(/[^a-z\s]/g, ' ');
+          if (/\bhey\s+jarvis\b|\bok\s+jarvis\b/.test(norm)) {
+            setWakeHeard(Date.now());
+            setWakeArmed(true);
+            setView('workspace');
+            setNotice('Listening — hey jarvis heard.');
+            speakText('Yes?');
+          }
+        };
+        rec.onerror = () => { /* permission / no-speech — retry softly */ };
+        rec.onend = () => { if (!stopped) setTimeout(start, 400); };
+        rec.start();
+      } catch { /* mic denied */ }
+    };
+    start();
+    return () => { stopped = true; try { rec?.stop(); } catch { /* ignore */ } };
+  }, []);
+
   async function create(role: Role = 'chat') {
     if (creating) return;
     setCreating(true);
@@ -157,13 +210,13 @@ export default function Dashboard() {
     { id: 'voice', icon: MicIcon, name: 'Voice' },
   ];
   const heading = {
-    workspace: ['A little less friction.', 'Big ideas. Small questions. Everything in between.'],
-    agents: ['More minds. One workspace.', 'Independent sessions. Shared visibility. You stay in control.'],
-    connections: ['Your accounts, connected.', 'Cursor, Gemini, and Ollama first — free or subscription.'],
-    knowledge: ['Your second brain.', 'One vault for Beaumont Voss, Talvori, personal, and Zeta.'],
-    skills: ['Built for your way of working.', 'Focused guidance, loaded only when you choose it.'],
-    appearance: ['Make space for your best work.', 'Midnight, Paper, and a clean set of accents.'],
-    voice: ['Speak when you want.', 'Mic in the composer. Speak on replies. Free paths first.'],
+    workspace: ['JARVIS.', 'Big ideas. Small questions. Your vault on the side.'],
+    agents: ['More minds. One desk.', 'Independent sessions. Shared visibility. You stay in control.'],
+    connections: ['Accounts, ready.', 'Cursor, Gemini, and Ollama first — free or subscription.'],
+    knowledge: ['One brain.', 'Beaumont Voss, Talvori, personal, and Zeta in a single vault.'],
+    skills: ['Your craft, on call.', 'Ecommerce packs + COG taste — load only what you need.'],
+    appearance: ['Quiet chrome.', 'Midnight, Paper, and restrained accents.'],
+    voice: ['Say hey jarvis.', 'Local Whisper first. Web Speech fallback. Speak on replies.'],
   } as Record<string, [string, string]>;
 
   const connectionOrder: Provider[] = ['cursor', 'gemini', 'ollama', 'chatgpt'];
@@ -253,12 +306,17 @@ export default function Dashboard() {
                   <button title="New conversation" onClick={() => create()}><PlusIcon /></button>
                 </div>
                 {current
-                  ? <Chat key={current.id} session={current} connected={!!status?.providers?.[current.provider || 'chatgpt']?.connected} onError={setError} />
+                  ? <Chat key={current.id} session={current} connected={!!status?.providers?.[current.provider || 'chatgpt']?.connected} onError={setError} wakeToken={wakeHeard} wakeArmed={wakeArmed} onWakeConsumed={() => setWakeArmed(false)} />
                   : <div className="welcome-wrap"><Welcome onCreate={create} /><button className="start-button" onClick={() => create()} disabled={creating}>Start a conversation <ArrowTopRightIcon /></button></div>}
               </section>
               {split && other ? (
                 <section className="chat-panel second-chat">
-                  <div className="panel-tabs"><span><ChatBubbleIcon />{other.title}</span><button title="Close split view" onClick={() => setSplit(false)}><Cross2Icon /></button></div>
+                  <div className="panel-tabs">
+                    <span><ChatBubbleIcon />{other.title}</span>
+                    <span className="tab-tag">{roleNames[other.role]} · {providerNames[other.provider || 'chatgpt']}</span>
+                    <button className="quiet-button" title="Focus this session" onClick={() => setActive(other.id)}>Focus</button>
+                    <button title="Close split view" onClick={() => setSplit(false)}><Cross2Icon /></button>
+                  </div>
                   <Chat key={other.id} session={other} connected={!!status?.providers?.[other.provider || 'chatgpt']?.connected} onError={setError} />
                 </section>
               ) : (
@@ -268,13 +326,14 @@ export default function Dashboard() {
                   <h3>{running.length ? `${running.length} session${running.length > 1 ? 's' : ''} at work` : 'Room for your next idea.'}</h3>
                   <p>{running.length ? 'Switch conversations freely. Your other sessions keep working.' : 'Start a conversation, or give a specialist a focused task.'}</p>
                   <div className="activity-list">
-                    {running.map(s => <button key={s.id} onClick={() => setActive(s.id)}><span className="session-dot running" /><div>{s.title}<small>{s.activity}</small></div><ArrowTopRightIcon /></button>)}
-                    {!running.length && <div className="idle-line"><span className="session-dot" /> No active runs</div>}
+                    {sessions.slice(0, 6).map(s => <button key={s.id} onClick={() => { setActive(s.id); if (s.id !== active && sessions.length > 1) setSplit(true); }}><span className={`session-dot ${s.status}`} /><div>{s.title}<small>{providerNames[s.provider || 'chatgpt']} · {s.status === 'running' ? s.activity : roleNames[s.role]}</small></div><ArrowTopRightIcon /></button>)}
+                    {!sessions.length && <div className="idle-line"><span className="session-dot" /> No active runs</div>}
                   </div>
                   <div className="inspector-divider" />
                   <div className="eyebrow">MAKE IT YOUR OWN</div>
                   <button className="inspector-action" onClick={() => setView('agents')}><CodeIcon /><span>Open the agent desk<small>Research, build, or review</small></span><ArrowTopRightIcon /></button>
                   <button className="inspector-action" onClick={() => setView('connections')}><MixerHorizontalIcon /><span>Manage connections<small>Cursor · Gemini · Ollama</small></span><ArrowTopRightIcon /></button>
+                  <button className="inspector-action" onClick={() => setView('knowledge')}><ReaderIcon /><span>Braindump / daily brief<small>COG flows in Knowledge</small></span><ArrowTopRightIcon /></button>
                   <div className="efficiency-note"><LightningBoltIcon /><h4>Second brain, not autopilot.</h4><p>Unlimited saved sessions. You start every run. No autonomous job loops in v1.</p></div>
                 </aside>
               )}
@@ -379,10 +438,10 @@ function Metric({ label, value, detail, live = false }: { label: string; value: 
 function Welcome({ onCreate }: { onCreate?: (r: Role) => void }) {
   return (
     <div className="welcome">
-      <div className="terminal-symbol">J<span>_</span></div>
-      <div className="eyebrow">A FRESH PROMPT. A FRESH PERSPECTIVE.</div>
+      <div className="terminal-symbol brand-hero">JARVIS<span>_</span></div>
+      <div className="eyebrow">PERSONAL AI WORKSPACE</div>
       <h2>What's on your mind?</h2>
-      <p>A place to work things out, chase an idea,<br />or make something worth making.</p>
+      <p>Work things out, chase an idea, or make something worth keeping — with your vault beside you.</p>
       {onCreate && (
         <div className="suggestions">
           <button onClick={() => onCreate('chat')}><ChatBubbleIcon />Think something through<ArrowTopRightIcon /></button>
@@ -394,14 +453,19 @@ function Welcome({ onCreate }: { onCreate?: (r: Role) => void }) {
   );
 }
 
-function Chat({ session: s, connected, onError }: { session: Session; connected: boolean; onError: (s: string) => void }) {
+function Chat({ session: s, connected, onError, wakeToken = 0, wakeArmed = false, onWakeConsumed }: { session: Session; connected: boolean; onError: (s: string) => void; wakeToken?: number; wakeArmed?: boolean; onWakeConsumed?: () => void }) {
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
   const [copied, setCopied] = useState('');
   const [listening, setListening] = useState(false);
+  const [micMode, setMicMode] = useState<'idle' | 'whisper' | 'webspeech'>('idle');
   const list = useRef<HTMLDivElement>(null);
   const pinned = useRef(true);
   const recognitionRef = useRef<{ stop: () => void } | null>(null);
+  const mediaRef = useRef<MediaRecorder | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
+  const streamRef = useRef<MediaStream | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const running = s.status === 'running';
   const voiceIn = localStorage.getItem('jarvis.voiceIn') !== 'off';
   const voiceOut = localStorage.getItem('jarvis.voiceOut') !== 'off';
@@ -438,15 +502,10 @@ function Chat({ session: s, connected, onError }: { session: Session; connected:
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
-  function toggleMic() {
+  function startWebSpeech() {
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SR) {
       onError('Web Speech is unavailable here. Use Mac Dictation (press Fn twice) in the composer, or enable Voice settings.');
-      return;
-    }
-    if (listening) {
-      recognitionRef.current?.stop();
-      setListening(false);
       return;
     }
     const rec = new SR();
@@ -459,16 +518,79 @@ function Chat({ session: s, connected, onError }: { session: Session; connected:
       for (let i = event.resultIndex; i < event.results.length; i++) text += event.results[i][0].transcript;
       if (text) setDraft(prev => (prev ? prev + ' ' : '') + text.trim());
     };
-    rec.onerror = () => { setListening(false); onError('Microphone capture failed. Try Mac Dictation (Fn Fn) instead.'); };
-    rec.onend = () => setListening(false);
+    rec.onerror = () => { setListening(false); setMicMode('idle'); onError('Microphone capture failed. Try Mac Dictation (Fn Fn) instead.'); };
+    rec.onend = () => { setListening(false); setMicMode('idle'); };
     setListening(true);
+    setMicMode('webspeech');
     rec.start();
   }
+
+  async function stopWhisper() {
+    const recorder = mediaRef.current;
+    if (!recorder || recorder.state !== 'recording') return;
+    await new Promise<void>((resolve) => {
+      recorder.onstop = () => resolve();
+      recorder.stop();
+    });
+    streamRef.current?.getTracks().forEach(t => t.stop());
+    streamRef.current = null;
+    const blob = new Blob(chunksRef.current, { type: recorder.mimeType || 'audio/webm' });
+    chunksRef.current = [];
+    mediaRef.current = null;
+    setListening(false);
+    setMicMode('idle');
+    try {
+      const body = await blob.arrayBuffer();
+      const bytes = new Uint8Array(body);
+      let binary = '';
+      for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+      const audioBase64 = btoa(binary);
+      const result = await api('speech/transcribe', 'POST', { audioBase64, filename: 'recording.webm' });
+      if (result.text) setDraft(prev => (prev ? prev + ' ' : '') + String(result.text).trim());
+    } catch (e) {
+      onError(String(e));
+      startWebSpeech();
+    }
+  }
+
+  async function toggleMic(forceStart = false) {
+    if (listening && !forceStart) {
+      if (micMode === 'whisper') await stopWhisper();
+      else { recognitionRef.current?.stop(); setListening(false); setMicMode('idle'); }
+      return;
+    }
+    if (listening && forceStart) return;
+    try {
+      const health = await fetch('/terminal-api/speech/health').then(r => r.json()).catch(() => null);
+      if (health?.whisper?.available && navigator.mediaDevices?.getUserMedia) {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        streamRef.current = stream;
+        chunksRef.current = [];
+        const recorder = new MediaRecorder(stream);
+        mediaRef.current = recorder;
+        recorder.ondataavailable = (e) => { if (e.data.size) chunksRef.current.push(e.data); };
+        recorder.start();
+        setListening(true);
+        setMicMode('whisper');
+        return;
+      }
+    } catch {
+      /* fall through to Web Speech */
+    }
+    startWebSpeech();
+  }
+
+  useEffect(() => {
+    if (!wakeToken || !wakeArmed) return;
+    textareaRef.current?.focus();
+    void toggleMic(true);
+    onWakeConsumed?.();
+  }, [wakeToken, wakeArmed]);
 
   return (
     <>
       <div className="chat-context">
-        <span><span className={`connection-dot ${connected ? 'connected' : ''}`} /> {providerNames[s.provider || 'chatgpt']} <span className="muted-text">/ {s.provider === 'cursor' ? 'Auto' : s.provider === 'ollama' ? 'Local' : s.effort === 'low' ? 'Lean' : s.effort === 'medium' ? 'Balanced' : 'Deep'}</span></span>
+        <span><span className={`connection-dot ${connected ? 'connected' : ''}`} /> {providerNames[s.provider || 'chatgpt']} <span className="muted-text">/ {s.provider === 'cursor' ? 'Auto' : s.provider === 'ollama' ? 'Local' : s.provider === 'gemini' ? 'Google' : s.effort === 'low' ? 'Lean' : s.effort === 'medium' ? 'Balanced' : 'Deep'}</span></span>
         <button title="Export conversation" onClick={download} disabled={!s.messages.length}><DownloadIcon /></button>
       </div>
       {s.contextSources?.length ? (
@@ -503,12 +625,12 @@ function Chat({ session: s, connected, onError }: { session: Session; connected:
       <div className="composer-wrap">
         <div className="composer">
           <label htmlFor={`prompt-${s.id}`} className="sr-only">Message {s.title}</label>
-          <textarea id={`prompt-${s.id}`} placeholder="Ask, explore, make something…" value={draft} onChange={e => setDraft(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); void send(); } }} />
+          <textarea ref={textareaRef} id={`prompt-${s.id}`} placeholder="Ask, explore, make something…" value={draft} onChange={e => setDraft(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); void send(); } }} />
           <div className="composer-bottom">
             <span><span className="prompt-mark">&gt;_</span> {roleNames[s.role]} <span className="composer-mode">{s.role === 'build' ? 'Workspace edits' : 'Read-only tools'}</span></span>
             <div className="composer-actions">
               {voiceIn && (
-                <button className={`mic-button ${listening ? 'recording' : ''}`} aria-label={listening ? 'Stop listening' : 'Dictate with microphone'} title={listening ? 'Stop' : 'Mic · Web Speech or use Mac Dictation (Fn Fn)'} onClick={toggleMic} disabled={running || sending}>
+                <button className={`mic-button ${listening ? 'recording' : ''}`} aria-label={listening ? 'Stop listening' : 'Dictate with microphone'} title={listening ? `Stop · ${micMode}` : 'Mic · Whisper preferred, Web Speech fallback'} onClick={() => { void toggleMic(); }} disabled={running || sending}>
                   <MicIcon />
                 </button>
               )}
@@ -519,7 +641,7 @@ function Chat({ session: s, connected, onError }: { session: Session; connected:
           </div>
         </div>
         <div className="composer-hint">
-          <span>{running ? 'Working in the background. You can switch sessions.' : !connected ? `Connect ${providerNames[s.provider || 'chatgpt']} in Connections to send messages.` : listening ? 'Listening…' : 'Enter to send · Mic or Mac Dictation (Fn Fn)'}</span>
+          <span>{running ? 'Working in the background. You can switch sessions.' : !connected ? `Connect ${providerNames[s.provider || 'chatgpt']} in Connections to send messages.` : listening ? (micMode === 'whisper' ? 'Recording… tap mic to transcribe with Whisper' : 'Listening…') : 'Enter to send · Mic (Whisper) · say hey jarvis'}</span>
           <span>{s.elapsedMs ? `${(s.elapsedMs / 1000).toFixed(1)}s` : 'Free / subscription'}</span>
         </div>
       </div>
@@ -527,20 +649,3 @@ function Chat({ session: s, connected, onError }: { session: Session; connected:
   );
 }
 
-type BrowserSpeechRecognition = {
-  continuous: boolean;
-  interimResults: boolean;
-  lang: string;
-  onresult: ((event: { resultIndex: number; results: ArrayLike<{ 0: { transcript: string } }> }) => void) | null;
-  onerror: (() => void) | null;
-  onend: (() => void) | null;
-  start: () => void;
-  stop: () => void;
-};
-
-declare global {
-  interface Window {
-    SpeechRecognition?: new () => BrowserSpeechRecognition;
-    webkitSpeechRecognition?: new () => BrowserSpeechRecognition;
-  }
-}

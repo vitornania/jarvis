@@ -113,6 +113,19 @@ export function Knowledge({ brain, refresh, project, onError }: { brain: BrainSt
     finally { setBusy(''); if (upload.current) upload.current.value = ''; }
   }
 
+  const [cogText, setCogText] = useState('');
+  async function saveCog(kind: 'braindump' | 'daily-brief') {
+    if (!cogText.trim()) return;
+    setBusy(kind === 'braindump' ? 'Saving braindump' : 'Saving daily brief');
+    try {
+      const saved = await request('cog/capture', 'POST', { kind, content: cogText });
+      setCogText('');
+      await refresh();
+      setNotice(`${kind === 'braindump' ? 'Braindump' : 'Daily brief'} saved to vault · ${saved.file}`);
+    } catch (e) { onError(String(e)); }
+    finally { setBusy(''); }
+  }
+
   return (
     <section className="brain-page">
       <div className="section-heading">
@@ -125,6 +138,18 @@ export function Knowledge({ brain, refresh, project, onError }: { brain: BrainSt
           <button className="quiet-button" disabled={!!busy} onClick={() => { setTab('memories'); setDraft({ category: 'note', project, pinned: false }); }}><PlusIcon />Save a memory</button>
           <button className="primary-button" disabled={!!busy} onClick={() => upload.current?.click()}><PlusIcon />Import files</button>
           <input ref={upload} type="file" multiple hidden onChange={e => importFiles(e.target.files)} />
+        </div>
+      </div>
+      <div className="cog-flows">
+        <div className="cog-card">
+          <span className="eyebrow">COG · BRAINDUMP</span>
+          <h3>Get it out of your head</h3>
+          <p>Quick capture into <code>00-inbox</code>. Attach the braindump skill in Workspace when you want structure.</p>
+          <textarea value={cogText} onChange={e => setCogText(e.target.value)} placeholder="Raw thoughts, ideas, competitive notes…" rows={3} />
+          <div className="button-group">
+            <button className="quiet-button" disabled={!!busy || !cogText.trim()} onClick={() => saveCog('braindump')}>Save braindump</button>
+            <button className="quiet-button" disabled={!!busy || !cogText.trim()} onClick={() => saveCog('daily-brief')}>Add to daily brief</button>
+          </div>
         </div>
       </div>
       <div className="library-stats">
@@ -290,9 +315,15 @@ export function VoicePanel() {
   const [voiceIn, setVoiceIn] = useState(() => localStorage.getItem('jarvis.voiceIn') !== 'off');
   const [voiceOut, setVoiceOut] = useState(() => localStorage.getItem('jarvis.voiceOut') !== 'off');
   const [autoSpeak, setAutoSpeak] = useState(() => localStorage.getItem('jarvis.autoSpeak') === 'on');
+  const [wake, setWake] = useState(() => localStorage.getItem('jarvis.wakeWord') !== 'off');
+  const [speechHealth, setSpeechHealth] = useState<{ available?: boolean; whisper?: { available?: boolean; model?: string } } | null>(null);
   useEffect(() => { localStorage.setItem('jarvis.voiceIn', voiceIn ? 'on' : 'off'); }, [voiceIn]);
   useEffect(() => { localStorage.setItem('jarvis.voiceOut', voiceOut ? 'on' : 'off'); }, [voiceOut]);
   useEffect(() => { localStorage.setItem('jarvis.autoSpeak', autoSpeak ? 'on' : 'off'); }, [autoSpeak]);
+  useEffect(() => { localStorage.setItem('jarvis.wakeWord', wake ? 'on' : 'off'); }, [wake]);
+  useEffect(() => {
+    fetch('/terminal-api/speech/health').then(r => r.json()).then(setSpeechHealth).catch(() => setSpeechHealth(null));
+  }, []);
   const webSpeech = typeof window !== 'undefined' && !!(window.SpeechRecognition || (window as unknown as { webkitSpeechRecognition?: unknown }).webkitSpeechRecognition);
   const tts = typeof window !== 'undefined' && !!window.speechSynthesis;
   return (
@@ -301,17 +332,18 @@ export function VoicePanel() {
         <div>
           <span className="eyebrow">TALK TO JARVIS</span>
           <h2>Mic in. Speak out.</h2>
-          <p>Free paths first: browser speech / Mac Dictation for input, system TTS for Speak. Whisper/Ollama can plug in later without paid APIs.</p>
+          <p>Prefer free local Whisper (whisper.cpp). Web Speech stays as fallback. Say “hey jarvis” when wake word is on.</p>
         </div>
       </div>
       <div className="voice-grid">
-        <label className="voice-toggle"><input type="checkbox" checked={voiceIn} onChange={e => setVoiceIn(e.target.checked)} /><span><strong>Microphone input</strong><small>{webSpeech ? 'Web Speech available in this browser' : 'Use Mac Dictation (Fn Fn) in the composer if Web Speech is unavailable'}</small></span></label>
+        <label className="voice-toggle"><input type="checkbox" checked={voiceIn} onChange={e => setVoiceIn(e.target.checked)} /><span><strong>Microphone input</strong><small>{speechHealth?.whisper?.available ? `Local Whisper ready · ${speechHealth.whisper.model || 'ggml-tiny'}` : webSpeech ? 'Web Speech fallback available' : 'Use Mac Dictation (Fn Fn) if needed'}</small></span></label>
+        <label className="voice-toggle"><input type="checkbox" checked={wake} onChange={e => setWake(e.target.checked)} /><span><strong>Wake word · “hey jarvis”</strong><small>{webSpeech ? 'Listens while this page is open (browser permission required)' : 'Needs Web Speech in this browser'}</small></span></label>
         <label className="voice-toggle"><input type="checkbox" checked={voiceOut} onChange={e => setVoiceOut(e.target.checked)} /><span><strong>Speak button on replies</strong><small>{tts ? 'System text-to-speech ready' : 'System TTS unavailable'}</small></span></label>
         <label className="voice-toggle"><input type="checkbox" checked={autoSpeak} onChange={e => setAutoSpeak(e.target.checked)} /><span><strong>Auto-speak finished replies</strong><small>On-demand Speak stays available either way</small></span></label>
       </div>
       <div className="settings-footnote">
         <h3>How to use</h3>
-        <p>In Workspace, tap the mic beside the composer to dictate. Tap Speak on an assistant message to hear it. Prefer free Whisper via Ollama when you add a local model later — no paid speech APIs required.</p>
+        <p>Tap Mic in Workspace to record; Whisper transcribes when available, otherwise Web Speech. With wake word on, say “hey jarvis” then your request. No paid speech APIs.</p>
       </div>
     </section>
   );

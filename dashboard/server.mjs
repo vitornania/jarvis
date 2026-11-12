@@ -1,7 +1,7 @@
 import http from 'node:http';
 import { spawn, execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { readFile, writeFile, mkdir, rename } from 'node:fs/promises';
+import { readFile, writeFile, mkdir, rename, unlink } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -10,13 +10,15 @@ import { Brain } from './brain.mjs';
 import { PROVIDERS, CHAT_PROVIDERS, PRIMARY_PROVIDERS, cleanEnvironment, executable, authenticated, invocation, normalizeEvent } from './providers.mjs';
 const exec = promisify(execFile);
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const home = path.resolve(root, '..');
 const dataDir = path.join(root, 'dashboard', '.data');
 const staticDir = path.join(root, 'src/openjarvis/server/static');
 const port = Number(process.env.TERMINAL_PORT || 4318);
-const env = cleanEnvironment(process.env);
-let jarvisConfig={vaultPath:path.resolve(root,'..','vault'),brand:'JARVIS'};
+const env = cleanEnvironment({...process.env, PATH:`${process.env.HOME}/.local/bin:/opt/homebrew/bin:/usr/local/bin:${process.env.PATH||''}`});
+let jarvisConfig={vaultPath:path.resolve(home,'vault'),brand:'JARVIS',whisperModel:path.resolve(home,'models/whisper/ggml-tiny.bin'),whisperBin:'whisper-cli'};
 try{jarvisConfig={...jarvisConfig,...JSON.parse(await readFile(path.join(root,'dashboard','jarvis.config.json'),'utf8'))};}catch{}
 await mkdir(dataDir, { recursive: true, mode: 0o700 });
+await mkdir(path.join(dataDir,'audio'), { recursive: true, mode: 0o700 });
 let sessions = [];
 try { sessions = JSON.parse(await readFile(path.join(dataDir, 'sessions.json'), 'utf8')); } catch {}
 for (const s of sessions) s.provider ||= 'chatgpt';
@@ -37,6 +39,34 @@ function persist() {
   }, 150);
 }
 function publish(s) { const msg = `data: ${JSON.stringify({type:'session', session:s})}\n\n`; for (const res of listeners) res.write(msg); persist(); }
+async function whichBin(bin){
+  try{const r=await exec('/usr/bin/which',[bin],{env,timeout:3000});return (r.stdout||'').trim()||null;}catch{return null;}
+}
+async function geminiAuthProbe(bin){
+  try{
+    const r=await exec(bin,['-p','Reply with OK only.','--output-format','json','--print-timeout','20s','--disable-slash-commands'],{env,timeout:25000,cwd:root,maxBuffer:4_000_000});
+    const out=(r.stdout||'')+(r.stderr||'');
+    if(/AGY_ERROR|"status"\s*:\s*"ERROR"|not authenticated|sign in/i.test(out)&&!/"status"\s*:\s*"SUCCESS"/i.test(out))return {installed:true,connected:false,detail:out.slice(-400)};
+    return {installed:true,connected:/"status"\s*:\s*"SUCCESS"|JARVIS_OK|\bOK\b/i.test(out)||authenticated('gemini',r.stdout,r.stderr),detail:out.slice(0,200)};
+  }catch(e){
+    const out=String(e.stdout||'')+String(e.stderr||'')+String(e.message||'');
+    if(/ENOENT|not found/i.test(out))return {installed:false,connected:false,detail:out};
+    // Keyring auth can succeed even when print times out on a cold start.
+    if(/silent auth succeeded|authenticated successfully|keyringAuth: loaded token/i.test(out)||existsSync(path.join(process.env.HOME,'.gemini/antigravity-cli'))){
+      return {installed:true,connected:true,detail:'agy present; Google session cached'};
+    }
+    return {installed:true,connected:false,detail:out.slice(-400)};
+  }
+}
+function whisperReady(){
+  const model=jarvisConfig.whisperModel;
+  const bin=jarvisConfig.whisperBin||'whisper-cli';
+  return {available:!!(existsSync(model)&&whichCache.whisper),model,bin,engine:'whisper.cpp'};
+}
+const whichCache={whisper:null,ffmpeg:null,agy:null};
+whichCache.whisper=await whichBin(jarvisConfig.whisperBin||'whisper-cli');
+whichCache.ffmpeg=await whichBin('ffmpeg');
+whichCache.agy=await whichBin('agy')||await whichBin('gemini');
 async function providerStatus(id) {
   const p=PROVIDERS[id];
   if(id==='ollama'){
@@ -45,19 +75,25 @@ async function providerStatus(id) {
       if(!r.ok)throw new Error('Ollama not ready');
       const data=await r.json();
       const models=(data.models||[]).map(m=>m.name);
-      return {id,name:p.name,model:models[0]||'local',installed:true,connected:true,loginCommand:'ollama serve',kind:'local',models,priority:PRIMARY_PROVIDERS.includes(id)};
+      const prefer=models.find(m=>/llama3\.2|phi|gemma|qwen|tinyllama/i.test(m))||models[0]||'local';
+      return {id,name:p.name,model:prefer,installed:true,connected:models.length>0,loginCommand:models.length?'ollama serve':`ollama pull llama3.2:1b`,kind:'local',models,priority:PRIMARY_PROVIDERS.includes(id)};
     }catch{
-      try{await exec(executable(id),['--version'],{env,timeout:4000});return {id,name:p.name,model:'local',installed:true,connected:false,loginCommand:'ollama serve',kind:'local',priority:true};}
+      try{await exec(executable(id),['--version'],{env,timeout:4000});return {id,name:p.name,model:'local',installed:true,connected:false,loginCommand:'brew services start ollama && ollama pull llama3.2:1b',kind:'local',priority:true};}
       catch(e){return {id,name:p.name,model:'local',installed:e.code!=='ENOENT',connected:false,loginCommand:'Install Ollama from ollama.com (free)',kind:'local',priority:true};}
     }
   }
   if(id==='gemini'){
+    const bin=executable('gemini');
+    const versionTry=async()=>{try{const r=await exec(bin,['--version'],{env,timeout:8000});return r;}catch(e){if(e.code==='ENOENT')throw e;return e;}};
     try{
-      const bin=process.env.TERMINAL_GEMINI_BIN||'gemini';
-      const r=await exec(bin,['--version'],{env,timeout:8000});
-      return {id,name:p.name,model:p.model,installed:true,connected:authenticated(id,r.stdout,r.stderr),loginCommand:'gemini (Google AI subscription / free tier)',kind:'subscription',priority:true};
+      await versionTry();
+      // Prefer cheap version check + known keyring/config presence; full probe is expensive.
+      const hasSession=existsSync(path.join(process.env.HOME,'.gemini/antigravity-cli'));
+      if(hasSession)return {id,name:p.name,model:'Gemini (agy)',installed:true,connected:true,loginCommand:'agy (Google account · free/subscription)',kind:'subscription',priority:true,hint:'Antigravity CLI · Google login'};
+      const probe=await geminiAuthProbe(bin);
+      return {id,name:p.name,model:'Gemini (agy)',installed:probe.installed,connected:probe.connected,loginCommand:'agy  # sign in with Google (free)',kind:'subscription',priority:true,hint:probe.connected?'Antigravity CLI connected':'Run Connect to finish Google sign-in — no paid API key'};
     }catch(e){
-      return {id,name:p.name,model:p.model,installed:false,connected:false,loginCommand:'Install Gemini CLI or use Google AI Studio free tier later',kind:'subscription',priority:true,hint:'Slot ready — no paid API key required'};
+      return {id,name:p.name,model:p.model,installed:false,connected:false,loginCommand:'brew install --cask antigravity-cli',kind:'subscription',priority:true,hint:'Install free Antigravity CLI (agy), then Google login'};
     }
   }
   try {const r=await exec(executable(id),p.status,{env,timeout:10000});return {id,name:p.name,model:p.model,installed:true,connected:authenticated(id,r.stdout,r.stderr),loginCommand:[p.cli,...p.login].filter(Boolean).join(' '),priority:PRIMARY_PROVIDERS.includes(id)};}
@@ -67,7 +103,8 @@ async function status() {
  const list=await Promise.all(['cursor','gemini','ollama','chatgpt'].map(providerStatus));
  const providers=Object.fromEntries(list.map(p=>[p.id,p]));
  const primary=PRIMARY_PROVIDERS.find(id=>providers[id]?.connected)||'cursor';
- return {connected:!!providers[primary]?.connected,provider:PROVIDERS[primary].name,model:providers[primary]?.model||PROVIDERS[primary].model,providers,apiBilling:false,maxConcurrent:4,running:jobs.size,openjarvis:existsSync(path.join(root,'.venv/bin/jarvis')),workspace:root,vaultPath:jarvisConfig.vaultPath,brand:jarvisConfig.brand||'JARVIS',primaryProviders:PRIMARY_PROVIDERS};
+ const whisper=whisperReady();
+ return {connected:!!providers[primary]?.connected,provider:PROVIDERS[primary].name,model:providers[primary]?.model||PROVIDERS[primary].model,providers,apiBilling:false,maxConcurrent:4,running:jobs.size,openjarvis:existsSync(path.join(root,'.venv/bin/jarvis')),workspace:root,vaultPath:jarvisConfig.vaultPath,brand:jarvisConfig.brand||'JARVIS',primaryProviders:PRIMARY_PROVIDERS,speech:{whisper,webSpeechFallback:true,wakeWord:'hey jarvis'}};
 }
 function json(res, code, body) { res.writeHead(code, {'Content-Type':'application/json','Cache-Control':'no-store'}); res.end(JSON.stringify(body)); }
 async function body(req) { let raw=''; for await (const chunk of req) { raw+=chunk; if(raw.length>29_000_000) throw new Error('Message is too large'); } return JSON.parse(raw||'{}'); }
@@ -118,12 +155,6 @@ async function run(s, prompt, res) {
     finally{jobs.delete(s.id);}
     return;
   }
-  if(s.provider==='gemini'){
-    jobs.delete(s.id);
-    s.messages.pop();s.messages.pop();
-    s.status='idle';s.activity='Ready when you are';
-    return json(res,501,{error:'Gemini slot is ready in Connections. CLI chat wiring lands next — use Cursor or Ollama for live replies today.'});
-  }
   const call=invocation(s,contextualPrompt,roles[s.role]);
   const child=spawn(executable(s.provider),call.args,{cwd:root,env,stdio:['pipe','pipe','pipe'],detached:true});
   jobs.set(s.id,child);
@@ -141,20 +172,72 @@ async function run(s, prompt, res) {
     const n=normalizeEvent(s.provider,e);
     if(n.threadId)s.threadId=n.threadId;
     if(n.activity)s.activity=n.activity;
-    if(n.append)answer.content+=(answer.content?'\n\n':'')+n.append;
+    if(n.append){
+      // Gemini stream may emit cumulative or delta text; prefer appending deltas.
+      if(s.provider==='gemini'&&n.append&&answer.content.endsWith(n.append)){/* skip duplicate */}
+      else if(s.provider==='gemini'&&n.append.startsWith(answer.content)&&answer.content)answer.content=n.append;
+      else answer.content+=(answer.content&&s.provider!=='gemini'?'\n\n':'')+n.append;
+    }
     if(n.final!==undefined)answer.content=n.final;
     if(n.usage)s.usage=n.usage;
     if(n.done)completed=true;
     if(n.error)s.error=n.error;
     if(Date.now()-lastPublish>100||n.append||n.done){publish(s);lastPublish=Date.now();}
   }
-  child.stdout.on('data',chunk=>{buffer+=chunk;let i;while((i=buffer.indexOf('\n'))>=0){const line=buffer.slice(0,i);buffer=buffer.slice(i+1);try{event(JSON.parse(line));}catch{}}});
+  child.stdout.on('data',chunk=>{buffer+=chunk;let i;while((i=buffer.indexOf('\n'))>=0){const line=buffer.slice(0,i);buffer=buffer.slice(i+1);try{event(JSON.parse(line));}catch{if(s.provider==='gemini'&&line.trim().startsWith('{')){try{event(JSON.parse(line.trim()));}catch{}}}}});
   child.stderr.on('data',chunk=>{stderr=(stderr+chunk).slice(-4000);});
   child.on('error',err=>{s.error=err.message;});
-  child.on('close',code=>{if(buffer.trim())try{event(JSON.parse(buffer));}catch{}finish(code);});
+  child.on('close',code=>{if(buffer.trim())try{event(JSON.parse(buffer));}catch{const m=buffer.match(/\{[\s\S]*\}/);if(m)try{event(JSON.parse(m[0]));}catch{}}finish(code);});
   child.stdin.on('error',()=>{});
   child.stdin.end(call.stdin);
   publish(s);json(res,202,{id:s.id});
+}
+async function readRaw(req,limit=20_000_000){const chunks=[];let size=0;for await(const chunk of req){size+=chunk.length;if(size>limit)throw new Error('Audio upload is too large');chunks.push(chunk);}return Buffer.concat(chunks);}
+async function transcribeWhisper(audioBuf,ext='webm'){
+  const ready=whisperReady();
+  if(!ready.available)throw new Error('Local Whisper is not ready. Install whisper.cpp (`brew install whisper.cpp`) and keep models/whisper/ggml-tiny.bin.');
+  const id=randomUUID();
+  const input=path.join(dataDir,'audio',`${id}.${ext.replace(/[^a-z0-9]/gi,'')||'webm'}`);
+  const wav=path.join(dataDir,'audio',`${id}.wav`);
+  await writeFile(input,audioBuf,{mode:0o600});
+  try{
+    if(whichCache.ffmpeg){
+      await exec(whichCache.ffmpeg||'ffmpeg',['-y','-i',input,'-ar','16000','-ac','1',wav],{env,timeout:60000});
+    }else{
+      await rename(input,wav);
+    }
+    const bin=whichCache.whisper||jarvisConfig.whisperBin||'whisper-cli';
+    const r=await exec(bin,['-m',jarvisConfig.whisperModel,'-f',wav,'-nt','-l','en'],{env,timeout:120000,maxBuffer:8_000_000});
+    const text=String(r.stdout||'').split('\n').map(l=>l.trim()).filter(l=>l&&!/^whisper_|system_info|main:|ggml_|read_audio|processing |\[/i.test(l)).join(' ').trim();
+    return {text,engine:'whisper.cpp',model:path.basename(jarvisConfig.whisperModel)};
+  }finally{
+    for(const f of [input,wav])try{await unlink(f);}catch{}
+  }
+}
+async function saveCogNote(kind,content){
+  const vault=jarvisConfig.vaultPath;
+  if(!vault)throw new Error('Vault path is not configured');
+  const stamp=new Date();
+  const day=stamp.toISOString().slice(0,10);
+  const safe=String(content||'').trim();
+  if(!safe)throw new Error('Write something first');
+  if(kind==='braindump'){
+    const dir=path.join(vault,'00-inbox');
+    await mkdir(dir,{recursive:true});
+    const file=path.join(dir,`braindump-${day}-${Date.now().toString(36)}.md`);
+    await writeFile(file,`# Braindump · ${stamp.toLocaleString()}\n\n${safe}\n`,{mode:0o600});
+    return {file:path.relative(vault,file),kind};
+  }
+  if(kind==='daily-brief'){
+    const dir=path.join(vault,'01-daily','briefs');
+    await mkdir(dir,{recursive:true});
+    const file=path.join(dir,`${day}.md`);
+    const header=`# Daily brief · ${day}\n\n> Generated from JARVIS · edit freely.\n\n`;
+    const existing=existsSync(file)?await readFile(file,'utf8'):header;
+    await writeFile(file,existing.includes(safe)?existing:`${existing.trim()}\n\n## Capture\n\n${safe}\n`,{mode:0o600});
+    return {file:path.relative(vault,file),kind};
+  }
+  throw new Error('Unknown COG flow');
 }
 function stop(id) { const child=jobs.get(id), s=sessions.find(x=>x.id===id); if(child?.pid){s.status='stopped';try{process.kill(-child.pid,'SIGTERM');}catch{child.kill();}publish(s);setTimeout(()=>{try{process.kill(-child.pid,'SIGKILL');}catch{}},2000).unref();} }
 const server=http.createServer(async(req,res)=>{
@@ -190,10 +273,37 @@ const server=http.createServer(async(req,res)=>{
     const softLogin=p.match(/^\/terminal-api\/providers\/(gemini|ollama)\/login$/);
     if(softLogin&&req.method==='POST'){
       if(softLogin[1]==='ollama'){
-        try{await exec('ollama',['serve'],{env,timeout:500});}catch{}
-        return json(res,200,{message:'If Ollama is installed, start it with `ollama serve`, then Refresh connections. Pull a free model with `ollama pull llama3.2`.'});
+        try{await exec('brew',['services','start','ollama'],{env,timeout:8000});}catch{try{spawn('ollama',['serve'],{env,detached:true,stdio:'ignore'}).unref();}catch{}}
+        return json(res,200,{message:'Starting Ollama. If needed: `brew services start ollama` then `ollama pull llama3.2:1b`. Refresh connections after the model lands.'});
       }
-      return json(res,200,{message:'Gemini connection slot is ready. Install the free Gemini CLI when available, or keep using Cursor / Ollama. No paid API key required.'});
+      const loginFile=path.join(root,'dashboard','login-gemini.command');
+      if(existsSync(loginFile)) await exec('/usr/bin/open',['-a','Terminal',loginFile],{env,timeout:10000});
+      return json(res,200,{message:'Complete Google sign-in in Terminal for Antigravity CLI (`agy`). Free/subscription Google account — no paid API key. Then Refresh connections.'});
+    }
+    if(p==='/terminal-api/speech/health'&&req.method==='GET'){
+      const whisper=whisperReady();
+      return json(res,200,{available:whisper.available,whisper,fallback:'webspeech',wakeWord:'hey jarvis'});
+    }
+    if(p==='/terminal-api/speech/transcribe'&&req.method==='POST'){
+      const ctype=String(req.headers['content-type']||'');
+      let buf,ext='webm';
+      if(ctype.includes('application/json')){
+        const b=await body(req);
+        if(!b.audioBase64)return json(res,400,{error:'audioBase64 required'});
+        buf=Buffer.from(b.audioBase64,'base64');
+        ext=String(b.filename||'recording.webm').split('.').pop()||'webm';
+      }else{
+        buf=await readRaw(req);
+        const match=ctype.match(/audio\/([\w+.-]+)/i);
+        ext=(match?.[1]||'webm').replace('x-','');
+      }
+      try{return json(res,200,await transcribeWhisper(buf,ext));}
+      catch(e){return json(res,503,{error:e.message});}
+    }
+    if(p==='/terminal-api/cog/capture'&&req.method==='POST'){
+      const b=await body(req);
+      try{const saved=await saveCogNote(b.kind==='daily-brief'?'daily-brief':'braindump',b.content);await brain.reindex();return json(res,201,saved);}
+      catch(e){return json(res,400,{error:e.message});}
     }
     if(p==='/terminal-api/events') {
       res.writeHead(200,{'Content-Type':'text/event-stream','Cache-Control':'no-cache','Connection':'keep-alive'});

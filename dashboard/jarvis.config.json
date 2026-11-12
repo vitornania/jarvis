@@ -2,5 +2,8 @@
   "brand": "JARVIS",
   "vaultPath": "/Users/vitornania/Desktop/JARVIS/vault",
   "homePath": "/Users/vitornania/Desktop/JARVIS",
-  "providersFirst": ["cursor", "gemini", "ollama"]
+  "providersFirst": ["cursor", "gemini", "ollama"],
+  "whisperBin": "whisper-cli",
+  "whisperModel": "/Users/vitornania/Desktop/JARVIS/models/whisper/ggml-tiny.bin",
+  "wakeWord": "hey jarvis"
 }
