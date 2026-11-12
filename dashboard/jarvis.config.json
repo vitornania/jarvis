@@ -1,0 +1,6 @@
+{
+  "brand": "JARVIS",
+  "vaultPath": "/Users/vitornania/Desktop/JARVIS/vault",
+  "homePath": "/Users/vitornania/Desktop/JARVIS",
+  "providersFirst": ["cursor", "gemini", "ollama"]
+}

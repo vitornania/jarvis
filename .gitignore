@@ -131,3 +131,9 @@ learning.db
 minion_logs/
 *.oj-debug.json
 oj-debug.*.json
+
+# Personal terminal dashboard state
+dashboard/.data/
+brain/
+.agents/skills/
+.cursor/skills
