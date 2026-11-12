@@ -5,8 +5,9 @@ import '@fontsource-variable/geist';
 import './terminal.css';
 import { Knowledge, Skills, AppearancePanel, VoicePanel, PALETTES, type BrainState, type Appearance, type PaletteId } from './BrainPanels';
 import { Hero3D, RailGlyph } from './Hero3D';
+import { Composer } from './Composer';
 import { speakText, stopSpeaking, matchesWakeWord, phaseLabel, type VoicePhase } from './voice';
-import './redesign.css';
+import './shell.css';
 
 type Provider = 'chatgpt' | 'claude' | 'cursor' | 'gemini' | 'ollama';
 const providerNames: Record<Provider, string> = { chatgpt: 'ChatGPT', claude: 'Claude', cursor: 'Cursor', gemini: 'Gemini', ollama: 'Ollama' };
@@ -76,10 +77,17 @@ export default function Dashboard() {
   const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
   const [appearance, setAppearance] = useState<Appearance>(() => {
     try {
+      const q = new URLSearchParams(window.location.search);
+      const themeQ = q.get('theme');
+      const paletteQ = q.get('palette') as PaletteId | null;
+      if (themeQ && ['dark', 'light', 'system'].includes(themeQ)) {
+        const palette = paletteQ && paletteIds.includes(paletteQ) ? paletteQ : 'ink';
+        return { theme: themeQ as Appearance['theme'], palette };
+      }
       const a = JSON.parse(localStorage.getItem('terminal.appearance') || 'null');
       if (a && ['dark', 'light', 'system'].includes(a.theme) && paletteIds.includes(a.palette)) return a;
     } catch { /* ignore */ }
-    return { theme: 'dark', palette: 'copper' };
+    return { theme: 'dark', palette: 'ink' };
   });
   const [systemDark, setSystemDark] = useState(window.matchMedia('(prefers-color-scheme: dark)').matches);
   const [wakeHeard, setWakeHeard] = useState(0);
@@ -271,13 +279,13 @@ export default function Dashboard() {
     { id: 'voice', name: 'Voice' },
   ];
   const heading = {
-    workspace: ['JARVIS', 'Local workspace. Vault on the side. Cursor first when connected.'],
+    workspace: ['Workspace', 'Think, build, and dig in. Vault beside you. Cursor first when connected.'],
     agents: ['Agent desk', 'Research, build, review, and God mode on subscription CLIs.'],
     connections: ['Connections', 'Cursor preferred. Gemini and ChatGPT next. Ollama is local fallback only.'],
     knowledge: ['Knowledge', 'Beaumont Voss, Talvori, personal, and Zeta in one vault.'],
     skills: ['Skills', 'Ecommerce packs and COG tools. Load only what you need.'],
-    appearance: ['Appearance', 'Midnight or Paper. One accent. Quiet chrome.'],
-    voice: ['Voice', 'FreeFlow preferred. macOS say for speech. Whisper as fallback.'],
+    appearance: ['Appearance', 'Midnight or Paper. One ink accent. Quiet chrome.'],
+    voice: ['Voice', 'Listen only. FreeFlow preferred. Mic as fallback. No speak-out.'],
   } as Record<string, [string, string]>;
 
   const connectionOrder: Provider[] = ['cursor', 'gemini', 'chatgpt', 'ollama'];
@@ -338,7 +346,10 @@ export default function Dashboard() {
         <header className="topbar">
           <button className="mobile-toggle" aria-label="Open menu" onClick={() => setMobile(!mobile)}><HamburgerMenuIcon /></button>
           <div className="breadcrumb">JARVIS <span>/</span> <strong>{viewNames[view]}</strong></div>
-          <div className="top-status">{status ? `${connectedCount} connected` : 'Checking…'}{voicePhase !== 'idle' ? ` · ${phaseLabel(voicePhase)}` : ''}</div>
+          <div className="top-status">
+            {status ? `${connectedCount} connected` : 'Checking…'}
+            {voicePhase !== 'idle' ? <em>{phaseLabel(voicePhase)}</em> : null}
+          </div>
         </header>
         <div className="workspace-heading">
           <div>
@@ -346,15 +357,15 @@ export default function Dashboard() {
             <p>{heading[view]?.[1]}</p>
           </div>
           {view === 'workspace' && (
-            <button className="quiet-button" onClick={() => setSplit(!split)}>{split ? 'Single' : 'Split'}</button>
+            <button type="button" className="quiet-button" onClick={() => setSplit(!split)}>{split ? 'Single' : 'Split'}</button>
           )}
         </div>
         {(view === 'workspace' || view === 'agents') && (
-          <div className="metrics">
-            <Metric label="Provider" value={providerNames[provider]} detail={selectedConnection?.connected ? 'Ready' : 'Needs setup'} />
-            <Metric label="Running" value={String(running.length)} detail="Parallel sessions" />
-            <Metric label="Output" value={number(totalTokens)} detail="Tokens this session set" />
-            <Metric label="Billing" value="Free / Sub" detail="No paid API keys" />
+          <div className="status-line" aria-label="Workspace status">
+            <span><strong>{providerNames[provider]}</strong>{selectedConnection?.connected ? 'ready' : 'needs setup'}</span>
+            <span><strong>{running.length}</strong>running</span>
+            <span><strong>{number(totalTokens)}</strong>tokens out</span>
+            <span><strong>Free / Sub</strong>no paid API keys</span>
           </div>
         )}
         {notice && <div className="connection-notice" role="status">{notice}<button onClick={() => setNotice('')} aria-label="Dismiss notice"><Cross2Icon /></button></div>}
@@ -500,22 +511,18 @@ export default function Dashboard() {
   );
 }
 
-function Metric({ label, value, detail }: { label: string; value: string; detail: string; live?: boolean }) {
-  return <div className="metric"><span>{label}</span><strong>{value}</strong><small>{detail}</small></div>;
-}
-
 function Welcome({ onCreate }: { onCreate?: (r: Role) => void }) {
   return (
-    <div className="welcome welcome-taste">
+    <div className="welcome welcome-scratch">
       <Hero3D />
       <h2>What's on your mind?</h2>
       <p>Think, build, or dig in - vault on the side.</p>
       {onCreate && (
         <div className="suggestions">
-          <button onClick={() => onCreate('chat')}>Think something through</button>
-          <button onClick={() => onCreate('build')}>Build something useful</button>
-          <button onClick={() => onCreate('research')}>Explore a question</button>
-          <button className="god-suggestion" onClick={() => onCreate('god')}>God mode</button>
+          <button type="button" onClick={() => onCreate('chat')}>Think something through</button>
+          <button type="button" onClick={() => onCreate('build')}>Build something useful</button>
+          <button type="button" onClick={() => onCreate('research')}>Explore a question</button>
+          <button type="button" className="god-suggestion" onClick={() => onCreate('god')}>God mode</button>
         </div>
       )}
     </div>
@@ -759,26 +766,41 @@ function Chat({ session: s, connected, onError, wakeToken = 0, wakeArmed = false
         {s.error && <div className="chat-error" role="alert">{s.error}</div>}
       </div>
       <div className="composer-wrap">
-        <div className="composer">
-          <label htmlFor={`prompt-${s.id}`} className="sr-only">Message {s.title}</label>
-          <textarea ref={textareaRef} id={`prompt-${s.id}`} placeholder="Ask, explore, make something…" value={draft} onChange={e => setDraft(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); void send(); } }} />
-          <div className="composer-bottom">
-            <span><span className="prompt-mark">&gt;_</span> {roleNames[s.role]} <span className="composer-mode">{s.role === 'god' ? 'Browser · high effort · sub CLIs' : s.role === 'build' ? 'Workspace edits' : 'Read-only tools'}{s.browserControl ? ' · browser on' : ''}</span></span>
-            <div className="composer-actions">
-              {voiceIn && (
-                <button type="button" className={`mic-button ${listening ? 'recording' : ''}`} aria-label={listening ? 'Stop listening' : 'Dictate with microphone'} title={listening ? `Stop · ${micMode}` : 'Mic · Whisper preferred, Web Speech fallback'} onClick={() => { void toggleMic(); }} disabled={running || sending}>
-                  {listening ? 'Stop' : 'Mic'}
-                </button>
-              )}
-              {running
-                ? <button type="button" className="send-button stop" aria-label="Stop response" onClick={() => api(`sessions/${s.id}/stop`, 'POST').catch(e => onError(String(e)))}>Stop</button>
-                : <button type="button" className="send-button" aria-label="Send message" disabled={!draft.trim() || sending || !connected} onClick={() => void send()}>Send</button>}
-            </div>
-          </div>
-        </div>
+        <Composer
+          id={`prompt-${s.id}`}
+          value={draft}
+          onChange={setDraft}
+          onSubmit={() => { void send(); }}
+          onStop={() => { api(`sessions/${s.id}/stop`, 'POST').catch(e => onError(String(e))); }}
+          disabled={sending || !connected}
+          running={running}
+          textareaRef={textareaRef}
+          placeholder="Ask, explore, make something…"
+          leftMeta={(
+            <span>
+              <span className="prompt-mark">&gt;_</span> {roleNames[s.role]}{' '}
+              <span className="composer-mode">
+                {s.role === 'god' ? 'Browser · high effort · sub CLIs' : s.role === 'build' ? 'Workspace edits' : 'Read-only tools'}
+                {s.browserControl ? ' · browser on' : ''}
+              </span>
+            </span>
+          )}
+          rightActions={voiceIn ? (
+            <button
+              type="button"
+              className={`mic-button ${listening ? 'recording' : ''}`}
+              aria-label={listening ? 'Stop listening' : 'Dictate with microphone'}
+              title={listening ? `Stop · ${micMode}` : 'Mic · Whisper preferred, Web Speech fallback'}
+              onClick={() => { void toggleMic(); }}
+              disabled={running || sending}
+            >
+              {listening ? 'Stop' : 'Mic'}
+            </button>
+          ) : null}
+        />
         <div className="composer-hint">
           <span>{running ? 'Working in the background.' : !connected ? `Connect ${providerNames[s.provider || 'chatgpt']} to send.` : listening ? 'Listening… tap mic to finish' : 'Enter to send · Fn FreeFlow · Mic for input'}</span>
-          <span>{s.elapsedMs ? `${(s.elapsedMs / 1000).toFixed(1)}s` : 'Free / subscription'}</span>
+          <span>{s.elapsedMs ? `${(s.elapsedMs / 1000).toFixed(1)}s` : 'Listen only · Free / subscription'}</span>
         </div>
       </div>
     </>

@@ -1,8 +1,9 @@
 import { motion, useReducedMotion } from 'motion/react';
 
 /**
- * Taste-skill 3D mark — ink/mono depth, no purple glow.
- * Motions: (1) orbit yaw, (2) core float, (3) scan sweep / rail tilt.
+ * Intentional 3D mark — wireframe cube + orbital rings.
+ * Motions: (1) orbit yaw, (2) core float, (3) scan sweep.
+ * No purple glow / soft aura (taste-skill anti-slop).
  */
 export function Hero3D({ compact = false }: { compact?: boolean }) {
   const reduce = useReducedMotion();
@@ -12,10 +13,10 @@ export function Hero3D({ compact = false }: { compact?: boolean }) {
       <div className="hero3d-stage">
         <motion.div
           className="hero3d-orbit"
-          animate={reduce ? undefined : { rotateY: 360, rotateX: [14, 20, 14] }}
+          animate={reduce ? undefined : { rotateY: 360, rotateX: [16, 22, 16] }}
           transition={reduce ? undefined : {
-            rotateY: { duration: 28, repeat: Infinity, ease: 'linear' },
-            rotateX: { duration: 8, repeat: Infinity, ease: 'easeInOut' },
+            rotateY: { duration: 32, repeat: Infinity, ease: 'linear' },
+            rotateX: { duration: 9, repeat: Infinity, ease: 'easeInOut' },
           }}
         >
           <span className="hero3d-ring hero3d-ring-a" />
@@ -23,8 +24,8 @@ export function Hero3D({ compact = false }: { compact?: boolean }) {
           <span className="hero3d-ring hero3d-ring-c" />
           <motion.div
             className="hero3d-core"
-            animate={reduce ? undefined : { y: [0, -6, 0], rotateZ: [0, 3, 0] }}
-            transition={reduce ? undefined : { duration: 5.5, repeat: Infinity, ease: 'easeInOut' }}
+            animate={reduce ? undefined : { y: [0, -7, 0], rotateZ: [0, 4, 0] }}
+            transition={reduce ? undefined : { duration: 5.8, repeat: Infinity, ease: 'easeInOut' }}
           >
             <span className="hero3d-face hero3d-face-front">J</span>
             <span className="hero3d-face hero3d-face-back">_</span>
@@ -36,16 +37,16 @@ export function Hero3D({ compact = false }: { compact?: boolean }) {
         </motion.div>
         <motion.div
           className="hero3d-scan"
-          animate={reduce ? undefined : { opacity: [0.25, 0.85, 0.25], y: ['10%', '80%', '10%'] }}
-          transition={reduce ? undefined : { duration: 4.8, repeat: Infinity, ease: 'easeInOut' }}
+          animate={reduce ? undefined : { opacity: [0.2, 0.9, 0.2], y: ['12%', '78%', '12%'] }}
+          transition={reduce ? undefined : { duration: 5.2, repeat: Infinity, ease: 'easeInOut' }}
         />
       </div>
       {!compact && (
         <motion.div
           className="hero3d-wordmark"
-          initial={reduce ? false : { opacity: 0, y: 8 }}
+          initial={reduce ? false : { opacity: 0, y: 6 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.45, ease: [0.22, 1, 0.36, 1] }}
+          transition={{ duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
         >
           JARVIS<span>_</span>
         </motion.div>
@@ -60,9 +61,8 @@ export function RailGlyph() {
     <motion.span
       className="brand-glyph rail-glyph-3d"
       aria-hidden="true"
-      style={{ transformStyle: 'preserve-3d' }}
-      animate={reduce ? undefined : { rotateY: [0, 14, 0, -10, 0] }}
-      transition={reduce ? undefined : { duration: 7.5, repeat: Infinity, ease: 'easeInOut' }}
+      animate={reduce ? undefined : { rotateY: [0, 12, 0, -8, 0] }}
+      transition={reduce ? undefined : { duration: 8, repeat: Infinity, ease: 'easeInOut' }}
     >
       J
     </motion.span>
