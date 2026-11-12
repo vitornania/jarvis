@@ -8,7 +8,9 @@ import { Hero3D, RailGlyph } from './Hero3D';
 import { Composer } from './Composer';
 import { ElixirEcomPanel, type ElixirMcpStatus } from './ElixirEcomPanel';
 import { speakText, stopSpeaking, matchesWakeWord, phaseLabel, type VoicePhase } from './voice';
+import { IconHome, IconStats, IconCard, IconBuild, IconPerson, IconDoc, IconMic, IconPalette, IconSettings, IconBell } from './VisionIcons';
 import './shell.css';
+import type { ReactNode } from 'react';
 
 type Provider = 'chatgpt' | 'claude' | 'cursor' | 'gemini' | 'ollama';
 const providerNames: Record<Provider, string> = { chatgpt: 'ChatGPT', claude: 'Claude', cursor: 'Cursor', gemini: 'Gemini', ollama: 'Ollama' };
@@ -301,17 +303,17 @@ export default function Dashboard() {
 
   const totalTokens = sessions.reduce((n, s) => n + (s.usage?.output_tokens || 0), 0);
   // Vision UI sidenav order — labels swapped to JARVIS (design unchanged)
-  const navMain = [
-    { id: 'workspace', name: 'Workspace', ico: '⌂' },
-    { id: 'agents', name: 'Agent desk', ico: '▤' },
-    { id: 'elixir', name: 'ELIXIR ECOM', ico: '◇' },
-    { id: 'skills', name: 'Skills', ico: '⚙' },
+  const navMain: { id: string; name: string; ico: ReactNode }[] = [
+    { id: 'workspace', name: 'Workspace', ico: <IconHome /> },
+    { id: 'agents', name: 'Agent desk', ico: <IconStats /> },
+    { id: 'elixir', name: 'ELIXIR ECOM', ico: <IconCard /> },
+    { id: 'skills', name: 'Skills', ico: <IconBuild /> },
   ];
-  const navAccount = [
-    { id: 'connections', name: 'Connections', ico: '◎' },
-    { id: 'knowledge', name: 'Knowledge', ico: '☰' },
-    { id: 'voice', name: 'Voice', ico: '◉' },
-    { id: 'appearance', name: 'Appearance', ico: '◑' },
+  const navAccount: { id: string; name: string; ico: ReactNode }[] = [
+    { id: 'connections', name: 'Connections', ico: <IconPerson /> },
+    { id: 'knowledge', name: 'Knowledge', ico: <IconDoc /> },
+    { id: 'voice', name: 'Voice', ico: <IconMic /> },
+    { id: 'appearance', name: 'Appearance', ico: <IconPalette /> },
   ];
   const heading = {
     workspace: ['Workspace', 'Think, build, and dig in. Vault beside you. Cursor first when connected.'],
@@ -352,9 +354,9 @@ export default function Dashboard() {
     finally { setCreatingMeta(false); }
   }
 
-  function NavButton({ item }: { item: { id: string; name: string; ico: string } }) {
+  function NavButton({ item }: { item: { id: string; name: string; ico: ReactNode } }) {
     return (
-      <button className={view === item.id ? 'selected' : ''} key={item.id} onClick={() => { setView(item.id); setMobile(false); }}>
+      <button type="button" className={view === item.id ? 'selected' : ''} onClick={() => { setView(item.id); setMobile(false); }}>
         <span className="nav-ico" aria-hidden="true">{item.ico}</span>
         <span className="nav-label">{item.name}</span>
         {item.id === 'workspace' && sessions.length > 0 ? <span className="nav-count">{sessions.length}</span> : null}
@@ -428,9 +430,9 @@ export default function Dashboard() {
           <div className="rail-section"><span>Conversations</span></div>
           <label className="session-search"><input id="session-search" placeholder="Find a conversation" aria-label="Find a conversation" value={search} onChange={e => setSearch(e.target.value)} /></label>
           <div className="session-list">
-            {sessions.filter(s => s.title.toLowerCase().includes(search.toLowerCase())).map(s => (
+            {sessions.filter(s => s.title.toLowerCase().includes(search.toLowerCase())).slice(0, 3).map(s => (
               <button key={s.id} className={active === s.id ? 'active' : ''} onClick={() => { setActive(s.id); setView('workspace'); setMobile(false); }}>
-                <span>{s.title}<small>{providerNames[s.provider || 'chatgpt']} · {s.status === 'running' ? 'working' : `${Math.floor(s.messages.length / 2)} turns`}</small></span>
+                <span>{s.title}</span>
               </button>
             ))}
             {!sessions.length && <p className="rail-empty">No conversations yet.</p>}
@@ -465,7 +467,8 @@ export default function Dashboard() {
             {status ? `${connectedCount} connected` : 'Checking…'}
             {voicePhase !== 'idle' ? <em>{phaseLabel(voicePhase)}</em> : <em>{bridgeLabel}</em>}
           </div>
-          <button type="button" className="top-icon-btn" aria-label="Open connections" onClick={() => setView('connections')}>◎</button>
+          <button type="button" className="top-icon-btn" aria-label="Notifications" onClick={() => setView('workspace')}><IconBell /></button>
+          <button type="button" className="top-icon-btn" aria-label="Settings" onClick={() => setView('appearance')}><IconSettings /></button>
         </header>
         <div className="workspace-heading">
           <div>
