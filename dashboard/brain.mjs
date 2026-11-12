@@ -19,8 +19,55 @@ export class Brain {
   this.memories=[];
   this.skills=[];
   this.projects=[];
+  this.workspaces=[];
   this.queue=Promise.resolve();
   this.memoryHealth={ok:true,lastWrite:null,lastHarvest:null,vaultWritable:false,error:null};
+ }
+ slugify(name){
+  return String(name||'').toLowerCase().trim().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'').slice(0,64)||'untitled';
+ }
+ async loadWorkspaces(){
+  const fallback=[{id:'jarvis',name:'JARVIS',projects:[],createdAt:new Date().toISOString(),primary:true}];
+  this.workspaces=await readJSON(path.join(this.dir,'workspaces.json'),fallback);
+  if(!Array.isArray(this.workspaces)||!this.workspaces.length)this.workspaces=fallback;
+ }
+ async persistWorkspaces(){await this.atomic(path.join(this.dir,'workspaces.json'),this.workspaces);}
+ async createWorkspace({name}){
+  const title=String(name||'').trim().slice(0,80);
+  if(!title)throw new Error('Workspace needs a name.');
+  const id=this.slugify(title);
+  if(this.workspaces.some(w=>w.id===id||w.name.toLowerCase()===title.toLowerCase()))throw new Error('That workspace already exists.');
+  const ws={id,name:title,projects:[],createdAt:new Date().toISOString(),primary:false};
+  if(this.vaultPath)await mkdir(path.join(this.vaultPath,'00-workspaces',id),{recursive:true});
+  await mkdir(path.join(this.dir,'workspaces',id),{recursive:true});
+  this.workspaces.push(ws);
+  await this.persistWorkspaces();
+  return ws;
+ }
+ async createProject({name,workspaceId}){
+  const title=String(name||'').trim().slice(0,80);
+  if(!title)throw new Error('Project needs a name.');
+  const id=this.slugify(title);
+  if(id==='global'||id==='all'||id==='conversations')throw new Error('That project name is reserved.');
+  if(this.projects.some(p=>p.id===id))throw new Error('That project already exists.');
+  const wsId=String(workspaceId||this.workspaces.find(w=>w.primary)?.id||'jarvis');
+  let ws=this.workspaces.find(w=>w.id===wsId);
+  if(!ws)throw new Error('Choose a workspace first.');
+  const dir=path.join(this.dir,'projects',id);
+  await mkdir(dir,{recursive:true});
+  const manifest={name:title,source:'Created in JARVIS',createdAt:new Date().toISOString(),workspaceId:ws.id,primary:false,aliases:[]};
+  await writeFile(path.join(dir,'import-manifest.json'),JSON.stringify(manifest,null,2),{mode:0o600});
+  await writeFile(path.join(dir,'README.md'),`# ${title}\n\nCreated in workspace **${ws.name}**.\n`,{mode:0o600});
+  if(this.vaultPath){
+   const vaultDir=path.join(this.vaultPath,'01-projects',id);
+   await mkdir(vaultDir,{recursive:true});
+   await writeFile(path.join(vaultDir,'import-manifest.json'),JSON.stringify(manifest,null,2),{mode:0o600});
+   await writeFile(path.join(vaultDir,'README.md'),`# ${title}\n\nCreated in workspace **${ws.name}**.\n`,{mode:0o600});
+  }
+  if(!ws.projects.includes(id))ws.projects.push(id);
+  await this.persistWorkspaces();
+  await this.reindex();
+  return {project:this.projects.find(p=>p.id===id)||{id,name:title,source:'Created in JARVIS',workspaceId:ws.id},workspace:ws};
  }
  resolveProject(raw){
   if(!raw||raw==='global'||raw==='all')return raw||'global';
@@ -36,8 +83,15 @@ export class Brain {
   }
   this.memories=await readJSON(path.join(this.dir,'memories.json'),[]);
   this.skills=await readJSON(path.join(this.dir,'skills.json'),[]);
+  await this.loadWorkspaces();
   await this.probeMemoryHealth();
   await this.reindex();
+  // Attach known projects to the primary workspace when empty
+  const primary=this.workspaces.find(w=>w.primary)||this.workspaces[0];
+  if(primary&&(!primary.projects||!primary.projects.length)&&this.projects.length){
+   primary.projects=this.projects.map(p=>p.id);
+   await this.persistWorkspaces();
+  }
  }
  async probeMemoryHealth(){
   try{
@@ -142,9 +196,10 @@ export class Brain {
   return {
    memories:this.memories,
    projects:this.projects,
+   workspaces:this.workspaces,
    skills:this.skills.map(({source,...s})=>s),
    files:this.documents.map(({text,...d})=>d),
-   counts:{memories:this.memories.length,files:this.documents.filter(d=>d.kind==='file').length,archives:this.documents.filter(d=>d.kind==='conversation').length,skills:this.skills.length,indexed:this.documents.filter(d=>d.indexed).length},
+   counts:{memories:this.memories.length,files:this.documents.filter(d=>d.kind==='file').length,archives:this.documents.filter(d=>d.kind==='conversation').length,skills:this.skills.length,indexed:this.documents.filter(d=>d.indexed).length,workspaces:this.workspaces.length,projects:this.projects.length},
    vaultPath:this.vaultPath,
    defaultProject:this.defaultProject,
    memoryHealth:this.memoryHealth,

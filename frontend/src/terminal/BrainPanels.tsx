@@ -7,6 +7,7 @@ export type Skill = { id: string; name: string; description: string; plugin: boo
 export type BrainState = {
   memories: Memory[];
   projects: { id: string; name: string; source: string }[];
+  workspaces?: { id: string; name: string; projects: string[]; primary?: boolean; createdAt?: string }[];
   skills: Skill[];
   files: Source[];
   counts: { memories: number; files: number; archives: number; skills: number; indexed: number };

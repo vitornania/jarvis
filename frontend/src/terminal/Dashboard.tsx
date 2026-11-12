@@ -88,8 +88,12 @@ export default function Dashboard() {
   const [refreshing, setRefreshing] = useState(false);
   const [brain, setBrain] = useState<BrainState | null>(null);
   const [project, setProject] = useState('beaumont-voss');
+  const [workspaceId, setWorkspaceId] = useState('jarvis');
   const [memoryEnabled, setMemoryEnabled] = useState(true);
   const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
+  const [createMode, setCreateMode] = useState<'workspace' | 'project' | null>(null);
+  const [createName, setCreateName] = useState('');
+  const [creatingMeta, setCreatingMeta] = useState(false);
   const [appearance, setAppearance] = useState<Appearance>(() => {
     try {
       const q = new URLSearchParams(window.location.search);
@@ -111,7 +115,16 @@ export default function Dashboard() {
   const wakeBusy = useRef(false);
   const wakeCooldownUntil = useRef(0);
 
-  async function refreshBrain() { try { setBrain(await api('brain')); } catch (e) { setError(String(e)); } }
+  async function refreshBrain() {
+    try {
+      const b = await api('brain');
+      setBrain(b);
+      if (b?.workspaces?.length && !b.workspaces.some((w: { id: string }) => w.id === workspaceId)) {
+        const primary = b.workspaces.find((w: { primary?: boolean }) => w.primary) || b.workspaces[0];
+        if (primary) setWorkspaceId(primary.id);
+      }
+    } catch (e) { setError(String(e)); }
+  }
   useEffect(() => { void refreshBrain(); }, [view]);
   useEffect(() => {
     const q = window.matchMedia('(prefers-color-scheme: dark)');
@@ -287,15 +300,18 @@ export default function Dashboard() {
   });
 
   const totalTokens = sessions.reduce((n, s) => n + (s.usage?.output_tokens || 0), 0);
-  const nav = [
-    { id: 'workspace', name: 'Workspace', ico: 'W' },
-    { id: 'agents', name: 'Agent desk', ico: 'A' },
-    { id: 'elixir', name: 'ELIXIR ECOM', ico: 'E' },
-    { id: 'knowledge', name: 'Knowledge', ico: 'K' },
-    { id: 'skills', name: 'Skills', ico: 'S' },
-    { id: 'appearance', name: 'Appearance', ico: 'T' },
-    { id: 'connections', name: 'Connections', ico: 'C' },
-    { id: 'voice', name: 'Voice', ico: 'V' },
+  // Vision UI sidenav order — labels swapped to JARVIS (design unchanged)
+  const navMain = [
+    { id: 'workspace', name: 'Workspace', ico: '⌂' },
+    { id: 'agents', name: 'Agent desk', ico: '▤' },
+    { id: 'elixir', name: 'ELIXIR ECOM', ico: '◇' },
+    { id: 'skills', name: 'Skills', ico: '⚙' },
+  ];
+  const navAccount = [
+    { id: 'connections', name: 'Connections', ico: '◎' },
+    { id: 'knowledge', name: 'Knowledge', ico: '☰' },
+    { id: 'voice', name: 'Voice', ico: '◉' },
+    { id: 'appearance', name: 'Appearance', ico: '◑' },
   ];
   const heading = {
     workspace: ['Workspace', 'Think, build, and dig in. Vault beside you. Cursor first when connected.'],
@@ -304,13 +320,47 @@ export default function Dashboard() {
     connections: ['Connections', 'Cursor preferred. Gemini and ChatGPT next. Ollama is local fallback only.'],
     knowledge: ['Knowledge', 'Beaumont Voss, Talvori, personal, and Zeta in one vault.'],
     skills: ['Skills', 'Ecommerce packs and COG tools. Load only what you need.'],
-    appearance: ['Appearance', 'Vision glass chrome. Brand blue from Creative Tim Vision UI.'],
+    appearance: ['Appearance', 'Vision UI chrome. Text only changes — design stays Creative Tim Vision.'],
     voice: ['Voice', 'Listen only. FreeFlow preferred. Mic as fallback. No speak-out.'],
   } as Record<string, [string, string]>;
 
   const connectionOrder: Provider[] = ['cursor', 'gemini', 'chatgpt', 'ollama'];
   const bridgeLabel = online ? 'Online' : 'Reconnecting';
   const providerReady = !!selectedConnection?.connected;
+  const workspaces = brain?.workspaces?.length ? brain.workspaces : [{ id: 'jarvis', name: 'JARVIS', projects: [], primary: true }];
+  const activeWorkspace = workspaces.find(w => w.id === workspaceId) || workspaces.find(w => w.primary) || workspaces[0];
+  const workspaceProjects = (brain?.projects || []).filter(p => !activeWorkspace?.projects?.length || activeWorkspace.projects.includes(p.id) || p.id === 'beaumont-voss');
+
+  async function submitCreate() {
+    const name = createName.trim();
+    if (!name || creatingMeta) return;
+    setCreatingMeta(true);
+    try {
+      if (createMode === 'workspace') {
+        const ws = await api('brain/workspaces', 'POST', { name });
+        setWorkspaceId(ws.id);
+        setNotice(`Workspace “${ws.name}” created.`);
+      } else {
+        const result = await api('brain/projects', 'POST', { name, workspaceId: activeWorkspace?.id || 'jarvis' });
+        setProject(result.project.id);
+        setNotice(`Project “${result.project.name}” created in ${result.workspace.name}.`);
+      }
+      setCreateName('');
+      setCreateMode(null);
+      await refreshBrain();
+    } catch (e) { setError(String(e)); }
+    finally { setCreatingMeta(false); }
+  }
+
+  function NavButton({ item }: { item: { id: string; name: string; ico: string } }) {
+    return (
+      <button className={view === item.id ? 'selected' : ''} key={item.id} onClick={() => { setView(item.id); setMobile(false); }}>
+        <span className="nav-ico" aria-hidden="true">{item.ico}</span>
+        <span className="nav-label">{item.name}</span>
+        {item.id === 'workspace' && sessions.length > 0 ? <span className="nav-count">{sessions.length}</span> : null}
+      </button>
+    );
+  }
 
   return (
     <div className="terminal-app" data-theme={appearance.theme === 'system' ? (systemDark ? 'dark' : 'light') : appearance.theme} data-palette={appearance.palette}>
@@ -318,11 +368,32 @@ export default function Dashboard() {
         <div className="rail-brand">
           <a className="brand" href="/" aria-label="JARVIS home">
             <RailGlyph />
-            <span className="brand-word">JARVIS<span className="brand-dot">.</span><small>VISION WORKSPACE</small></span>
+            <span className="brand-word">JARVIS</span>
           </a>
         </div>
-        <div className="rail-compose">
-          <button className="new-session" onClick={() => create()} disabled={creating}>New conversation <kbd>⌘J</kbd></button>
+        <div className="rail-divider" />
+        <nav className="rail-nav" aria-label="Main navigation">
+          {navMain.map(item => <NavButton key={item.id} item={item} />)}
+        </nav>
+        <div className="rail-nav-label">Account Pages</div>
+        <nav className="rail-nav" aria-label="Account navigation">
+          {navAccount.map(item => <NavButton key={item.id} item={item} />)}
+        </nav>
+
+        <div className="rail-nav-label">Workspaces</div>
+        <div className="rail-context project-controls">
+          <label className="provider-picker">WORKSPACE
+            <select aria-label="Active workspace" value={activeWorkspace?.id || 'jarvis'} onChange={e => setWorkspaceId(e.target.value)}>
+              {workspaces.map(w => <option key={w.id} value={w.id}>{w.name}{w.primary ? ' · primary' : ''}</option>)}
+            </select>
+          </label>
+          <label className="provider-picker">PROJECT INSIDE WORKSPACE
+            <select aria-label="Project for new chats" value={project} onChange={e => setProject(e.target.value)}>
+              <option value="beaumont-voss">Beaumont Voss · primary</option>
+              <option value="global">All knowledge</option>
+              {workspaceProjects.filter(p => p.id !== 'beaumont-voss').map(p => <option key={p.id} value={p.id}>{p.name}{p.id === 'market-research' ? ' (= Beaumont)' : ''}</option>)}
+            </select>
+          </label>
           <label className="provider-picker">PROVIDER FOR NEW CHATS
             <select aria-label="Provider for new chats" value={provider} onChange={e => setProvider(e.target.value as Provider)}>
               {connectionOrder.map(id => (
@@ -330,27 +401,29 @@ export default function Dashboard() {
               ))}
             </select>
           </label>
-        </div>
-        <div className="rail-nav-label">Pages</div>
-        <nav className="rail-nav" aria-label="Main navigation">
-          {nav.map(item => (
-            <button className={view === item.id ? 'selected' : ''} key={item.id} onClick={() => { setView(item.id); setMobile(false); }}>
-              <span className="nav-ico" aria-hidden="true">{item.ico}</span>
-              <span className="nav-label">{item.name}</span>
-              {item.id === 'workspace' && sessions.length > 0 ? <span className="nav-count">{sessions.length}</span> : <span className="nav-chevron" aria-hidden="true">›</span>}
-            </button>
-          ))}
-        </nav>
-        <div className="rail-context project-controls">
-          <label className="provider-picker">PROJECT FOR NEW CHATS
-            <select aria-label="Project for new chats" value={project} onChange={e => setProject(e.target.value)}>
-              <option value="beaumont-voss">Beaumont Voss · primary</option>
-              <option value="global">All knowledge</option>
-              {brain?.projects.filter(p => p.id !== 'beaumont-voss').map(p => <option key={p.id} value={p.id}>{p.name}{p.id === 'market-research' ? ' (= Beaumont)' : ''}</option>)}
-            </select>
-          </label>
           <label className="memory-switch"><input type="checkbox" checked={memoryEnabled} onChange={e => setMemoryEnabled(e.target.checked)} />Use saved context<span>{selectedSkills.length ? `${selectedSkills.length} skills` : ''}</span></label>
+          <div className="rail-create-actions" style={{ margin: '8px 16px 0', display: 'flex', gap: 6 }}>
+            <button type="button" className="ghost" style={{ flex: 1, border: 0, borderRadius: 12, padding: '8px 10px', fontSize: 10, fontWeight: 700, letterSpacing: '.06em', textTransform: 'uppercase', background: 'rgba(255,255,255,.06)', color: 'var(--vui-text)' }} onClick={() => { setCreateMode('workspace'); setCreateName(''); }}>New workspace</button>
+            <button type="button" className="ghost" style={{ flex: 1, border: 0, borderRadius: 12, padding: '8px 10px', fontSize: 10, fontWeight: 700, letterSpacing: '.06em', textTransform: 'uppercase', background: 'rgba(255,255,255,.06)', color: 'var(--vui-text)' }} onClick={() => { setCreateMode('project'); setCreateName(''); }}>New project</button>
+          </div>
+          {createMode && (
+            <div className="rail-create">
+              <h4>{createMode === 'workspace' ? 'Create workspace' : `Create project in ${activeWorkspace?.name || 'JARVIS'}`}</h4>
+              <input
+                autoFocus
+                placeholder={createMode === 'workspace' ? 'Workspace name' : 'Project name'}
+                value={createName}
+                onChange={e => setCreateName(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') void submitCreate(); if (e.key === 'Escape') setCreateMode(null); }}
+              />
+              <div className="rail-create-actions">
+                <button type="button" className="ghost" onClick={() => setCreateMode(null)}>Cancel</button>
+                <button type="button" className="primary" disabled={creatingMeta || !createName.trim()} onClick={() => void submitCreate()}>{creatingMeta ? 'Saving…' : 'Create'}</button>
+              </div>
+            </div>
+          )}
         </div>
+
         <div className="rail-sessions">
           <div className="rail-section"><span>Conversations</span></div>
           <label className="session-search"><input id="session-search" placeholder="Find a conversation" aria-label="Find a conversation" value={search} onChange={e => setSearch(e.target.value)} /></label>
@@ -363,10 +436,15 @@ export default function Dashboard() {
             {!sessions.length && <p className="rail-empty">No conversations yet.</p>}
           </div>
         </div>
-        <div className="rail-help">
-          <strong>Need help?</strong>
-          <p>Bridge {bridgeLabel.toLowerCase()}. Cursor → Gemini → ChatGPT. Ollama is offline fallback only.</p>
-          <button type="button" onClick={() => { setView('connections'); setMobile(false); }}>Check connections</button>
+
+        <div className="rail-footer-stack">
+          <div className="rail-help">
+            <div className="help-ico" aria-hidden="true">★</div>
+            <strong>Need help?</strong>
+            <p>Please check our docs</p>
+            <button type="button" onClick={() => { setView('connections'); setMobile(false); }}>DOCUMENTATION</button>
+          </div>
+          <button className="new-session rail-upgrade" onClick={() => create()} disabled={creating}>New conversation <kbd>⌘J</kbd></button>
         </div>
       </aside>
       {mobile && <button className="mobile-scrim" aria-label="Close menu" onClick={() => setMobile(false)} />}

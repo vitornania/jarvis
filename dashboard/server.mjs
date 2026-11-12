@@ -385,6 +385,8 @@ const server=http.createServer(async(req,res)=>{
     const memory=p.match(/^\/terminal-api\/brain\/memories\/([a-f0-9-]+)$/);
     if(memory&&req.method==='DELETE'){await brain.forget(memory[1]);return json(res,200,{ok:true});}
     if(p==='/terminal-api/brain/import'&&req.method==='POST')return json(res,201,await brain.importFile(await body(req)));
+    if(p==='/terminal-api/brain/workspaces'&&req.method==='POST')return json(res,201,await brain.createWorkspace(await body(req)));
+    if(p==='/terminal-api/brain/projects'&&req.method==='POST')return json(res,201,await brain.createProject(await body(req)));
     if(p==='/terminal-api/brain/reindex'&&req.method==='POST')return json(res,200,await brain.reindex());
     const document=p.match(/^\/terminal-api\/brain\/documents\/([a-f0-9]+)(\/download)?$/);
     if(document&&req.method==='GET'){
