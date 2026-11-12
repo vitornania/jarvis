@@ -94,11 +94,11 @@ export function matchesWakeWord(raw: string): boolean {
 
 export function phaseLabel(phase: VoicePhase): string {
   switch (phase) {
-    case 'wake': return 'Wake armed';
+    case 'wake': return 'Wake heard';
     case 'listening': return 'Listening…';
     case 'transcribing': return 'Transcribing…';
     case 'thinking': return 'Thinking…';
     case 'speaking': return 'Speaking…';
-    default: return 'Idle';
+    default: return 'Mic off';
   }
 }

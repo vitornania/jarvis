@@ -1,15 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
-import { PlusIcon, ArrowUpIcon, ArrowTopRightIcon, Cross2Icon, MagnifyingGlassIcon, MixerHorizontalIcon, ChatBubbleIcon, DashboardIcon, LightningBoltIcon, CodeIcon, ReaderIcon, CheckCircledIcon, StopIcon, CopyIcon, DownloadIcon, HamburgerMenuIcon, ChevronRightIcon, SpeakerLoudIcon } from '@radix-ui/react-icons';
-
-function MicIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
-      <path d="M5 3a3 3 0 0 1 6 0v5a3 3 0 0 1-6 0V3z" />
-      <path d="M3.5 6.5A.5.5 0 0 1 4 7v1a4 4 0 0 0 8 0V7a.5.5 0 0 1 1 0v1a5 5 0 0 1-4.5 4.975V15h3a.5.5 0 0 1 0 1h-7a.5.5 0 0 1 0-1h3v-2.025A5 5 0 0 1 3 8V7a.5.5 0 0 1 .5-.5z" />
-    </svg>
-  );
-}
+import { Cross2Icon, HamburgerMenuIcon } from '@radix-ui/react-icons';
 import '@fontsource-variable/geist';
 import './terminal.css';
 import { Knowledge, Skills, AppearancePanel, VoicePanel, PALETTES, type BrainState, type Appearance, type PaletteId } from './BrainPanels';
@@ -48,7 +39,6 @@ declare global {
 }
 
 const roleNames = { chat: 'Conversation', research: 'Research', build: 'Build', review: 'Review', god: 'God mode' };
-const roleIcons = { chat: ChatBubbleIcon, research: MagnifyingGlassIcon, build: CodeIcon, review: ReaderIcon, god: LightningBoltIcon };
 const paletteIds = PALETTES.map(p => p.id) as PaletteId[];
 
 async function api(path: string, method = 'GET', data?: unknown) {
@@ -177,9 +167,23 @@ export default function Dashboard() {
     return provider;
   }
 
+  // One-time migrate: wake was previously default-on; force opt-in.
   useEffect(() => {
-    const wakeOn = localStorage.getItem('jarvis.wakeWord') !== 'off';
-    if (!wakeOn) return;
+    try {
+      if (localStorage.getItem('jarvis.wakeWord.v2') !== '1') {
+        localStorage.setItem('jarvis.wakeWord', 'off');
+        localStorage.setItem('jarvis.wakeWord.v2', '1');
+      }
+    } catch { /* ignore */ }
+  }, []);
+
+  // Wake-word listener is opt-in only (Voice settings). Never arm mic on load.
+  useEffect(() => {
+    const wakeOn = localStorage.getItem('jarvis.wakeWord') === 'on';
+    if (!wakeOn) {
+      if (voicePhase === 'wake') setVoicePhase('idle');
+      return;
+    }
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SR) return;
     let stopped = false;
@@ -204,11 +208,10 @@ export default function Dashboard() {
           setWakeHeard(Date.now());
           setWakeArmed(true);
           setView('workspace');
-          setNotice('Wake heard — listening for your request.');
-          void speakText('Yes?', {
-            onStart: () => setVoicePhase('speaking'),
-            onEnd: () => { setVoicePhase('listening'); wakeBusy.current = false; },
-          });
+          setNotice('Wake heard - listening for your request.');
+          // Listen-only: no TTS reply on wake.
+          setVoicePhase('listening');
+          wakeBusy.current = false;
         };
         rec.onerror = () => { /* no-speech / aborted — soft retry */ };
         rec.onend = () => {
@@ -216,7 +219,7 @@ export default function Dashboard() {
           restartTimer = setTimeout(start, voicePhase === 'idle' || voicePhase === 'wake' ? 500 : 1200);
         };
         rec.start();
-        if (voicePhase === 'idle') setVoicePhase('wake');
+        // Stay idle while armed — do not flash "Wake armed" until the phrase is heard.
       } catch { /* mic denied */ }
     };
     start();
@@ -259,13 +262,13 @@ export default function Dashboard() {
 
   const totalTokens = sessions.reduce((n, s) => n + (s.usage?.output_tokens || 0), 0);
   const nav = [
-    { id: 'workspace', icon: ChatBubbleIcon, name: 'Workspace' },
-    { id: 'agents', icon: DashboardIcon, name: 'Agent desk' },
-    { id: 'knowledge', icon: ReaderIcon, name: 'Knowledge' },
-    { id: 'skills', icon: LightningBoltIcon, name: 'Skills' },
-    { id: 'appearance', icon: DashboardIcon, name: 'Appearance' },
-    { id: 'connections', icon: MixerHorizontalIcon, name: 'Connections' },
-    { id: 'voice', icon: MicIcon, name: 'Voice' },
+    { id: 'workspace', name: 'Workspace' },
+    { id: 'agents', name: 'Agent desk' },
+    { id: 'knowledge', name: 'Knowledge' },
+    { id: 'skills', name: 'Skills' },
+    { id: 'appearance', name: 'Appearance' },
+    { id: 'connections', name: 'Connections' },
+    { id: 'voice', name: 'Voice' },
   ];
   const heading = {
     workspace: ['JARVIS', 'Local workspace. Vault on the side. Cursor first when connected.'],
@@ -287,10 +290,10 @@ export default function Dashboard() {
             <RailGlyph />
             <span className="brand-word">JARVIS<span className="brand-dot">.</span><small>PERSONAL AI WORKSPACE</small></span>
           </a>
-          <div className="workspace-label"><span className="workspace-avatar">VN</span><span>Personal workspace<small>Local · on your Mac</small></span><ChevronRightIcon /></div>
+          <div className="workspace-label"><span>Personal workspace<small>Local on your Mac</small></span></div>
         </div>
         <div className="rail-compose">
-          <button className="new-session" onClick={() => create()} disabled={creating}><PlusIcon /> New conversation <kbd>⌘ J</kbd></button>
+          <button className="new-session" onClick={() => create()} disabled={creating}>New conversation <kbd>⌘J</kbd></button>
           <label className="provider-picker">PROVIDER FOR NEW CHATS
             <select aria-label="Provider for new chats" value={provider} onChange={e => setProvider(e.target.value as Provider)}>
               {connectionOrder.map(id => (
@@ -302,7 +305,7 @@ export default function Dashboard() {
         <nav className="rail-nav" aria-label="Main navigation">
           {nav.map(item => (
             <button className={view === item.id ? 'selected' : ''} key={item.id} onClick={() => { setView(item.id); setMobile(false); }}>
-              <item.icon />{item.name}{item.id === 'workspace' && <span>{sessions.length.toString().padStart(2, '0')}</span>}
+              {item.name}{item.id === 'workspace' && sessions.length > 0 ? <span className="nav-count">{sessions.length}</span> : null}
             </button>
           ))}
         </nav>
@@ -317,41 +320,41 @@ export default function Dashboard() {
           <label className="memory-switch"><input type="checkbox" checked={memoryEnabled} onChange={e => setMemoryEnabled(e.target.checked)} />Use saved context<span>{selectedSkills.length ? `${selectedSkills.length} skills` : ''}</span></label>
         </div>
         <div className="rail-sessions">
-          <div className="rail-section"><span>CONVERSATIONS</span><button title="New conversation" onClick={() => create()}><PlusIcon /></button></div>
-          <label className="session-search"><MagnifyingGlassIcon /><input id="session-search" placeholder="Find a conversation" aria-label="Find a conversation" value={search} onChange={e => setSearch(e.target.value)} /><kbd>⌘K</kbd></label>
+          <div className="rail-section"><span>Conversations</span></div>
+          <label className="session-search"><input id="session-search" placeholder="Find a conversation" aria-label="Find a conversation" value={search} onChange={e => setSearch(e.target.value)} /></label>
           <div className="session-list">
             {sessions.filter(s => s.title.toLowerCase().includes(search.toLowerCase())).map(s => (
               <button key={s.id} className={active === s.id ? 'active' : ''} onClick={() => { setActive(s.id); setView('workspace'); setMobile(false); }}>
-                <span className={`session-dot ${s.status}`} />
-                <span>{s.title}<small>{providerNames[s.provider || 'chatgpt']} · {s.status === 'running' ? 'working' : s.messages.length / 2 + ' turns'}</small></span>
+                <span>{s.title}<small>{providerNames[s.provider || 'chatgpt']} · {s.status === 'running' ? 'working' : `${Math.floor(s.messages.length / 2)} turns`}</small></span>
               </button>
             ))}
-            {!sessions.length && <p className="rail-empty">Your conversations will live here.<br />Start something good.</p>}
+            {!sessions.length && <p className="rail-empty">No conversations yet.</p>}
           </div>
         </div>
-        <div className="rail-footer"><span className={`connection-dot ${online ? 'connected' : ''}`} /><span>Local bridge<small>{online ? 'Connected to your Mac' : 'Reconnecting…'}</small></span><span className={`voice-phase-pill phase-${voicePhase}`}>{phaseLabel(voicePhase)}</span></div>
+        <div className="rail-footer"><span>Bridge {online ? 'online' : 'reconnecting'}{voicePhase !== 'idle' ? ` · ${phaseLabel(voicePhase)}` : ''}</span></div>
       </aside>
       {mobile && <button className="mobile-scrim" aria-label="Close menu" onClick={() => setMobile(false)} />}
       <div className="main-shell">
         <header className="topbar">
           <button className="mobile-toggle" aria-label="Open menu" onClick={() => setMobile(!mobile)}><HamburgerMenuIcon /></button>
           <div className="breadcrumb">JARVIS <span>/</span> <strong>{viewNames[view]}</strong></div>
-          <div className="top-status"><span className={`voice-phase-pill phase-${voicePhase}`}>{phaseLabel(voicePhase)}</span><span className={`connection-dot ${connectedCount ? 'connected' : ''}`} />{status ? `${connectedCount} account${connectedCount === 1 ? '' : 's'} connected` : 'Checking connections'}</div>
-          <button className="avatar" title="Your personal workspace">VN</button>
+          <div className="top-status">{status ? `${connectedCount} connected` : 'Checking…'}{voicePhase !== 'idle' ? ` · ${phaseLabel(voicePhase)}` : ''}</div>
         </header>
         <div className="workspace-heading">
           <div>
             <h1>{heading[view]?.[0]}</h1>
             <p>{heading[view]?.[1]}</p>
           </div>
-          <button className="quiet-button" onClick={() => setSplit(!split)} disabled={view !== 'workspace'}><DashboardIcon />{split ? 'Single view' : 'Split view'}</button>
+          {view === 'workspace' && (
+            <button className="quiet-button" onClick={() => setSplit(!split)}>{split ? 'Single' : 'Split'}</button>
+          )}
         </div>
         {(view === 'workspace' || view === 'agents') && (
           <div className="metrics">
-            <Metric label="NEW CHAT PROVIDER" value={providerNames[provider]} detail={selectedConnection?.connected ? 'Ready' : 'Setup from Connections'} live={!!selectedConnection?.connected} />
-            <Metric label="RUNNING NOW" value={String(running.length).padStart(2, '0')} detail="Up to 4 simultaneous runs" />
-            <Metric label="REPORTED OUTPUT" value={number(totalTokens)} detail="Tokens · latest turn per session" />
-            <Metric label="BILLING ROUTE" value="Free / Sub" detail="No paid API-key fallback" />
+            <Metric label="Provider" value={providerNames[provider]} detail={selectedConnection?.connected ? 'Ready' : 'Needs setup'} />
+            <Metric label="Running" value={String(running.length)} detail="Parallel sessions" />
+            <Metric label="Output" value={number(totalTokens)} detail="Tokens this session set" />
+            <Metric label="Billing" value="Free / Sub" detail="No paid API keys" />
           </div>
         )}
         {notice && <div className="connection-notice" role="status">{notice}<button onClick={() => setNotice('')} aria-label="Dismiss notice"><Cross2Icon /></button></div>}
@@ -365,40 +368,37 @@ export default function Dashboard() {
             <div className={`work-grid ${split && other ? 'split-mode' : ''}`}>
               <section className="chat-panel">
                 <div className="panel-tabs">
-                  <span><ChatBubbleIcon />{current ? current.title : 'New conversation'}</span>
-                  <span className="tab-tag">{current ? roleNames[current.role] : 'CHAT'}</span>
-                  <button title="New conversation" onClick={() => create()}><PlusIcon /></button>
+                  <span>{current ? current.title : 'New conversation'}</span>
+                  <span className="tab-tag">{current ? roleNames[current.role] : 'Chat'}</span>
                 </div>
                 {current
                   ? <Chat key={current.id} session={current} connected={!!status?.providers?.[current.provider || 'chatgpt']?.connected} onError={setError} wakeToken={wakeHeard} wakeArmed={wakeArmed} onWakeConsumed={() => setWakeArmed(false)} onPhase={setVoicePhase} />
-                  : <div className="welcome-wrap"><Welcome onCreate={create} /><button className="start-button" onClick={() => create()} disabled={creating}>Start a conversation <ArrowTopRightIcon /></button></div>}
+                  : <div className="welcome-wrap"><Welcome onCreate={create} /><button className="start-button" onClick={() => create()} disabled={creating}>Start a conversation</button></div>}
               </section>
               {split && other ? (
                 <section className="chat-panel second-chat">
                   <div className="panel-tabs">
-                    <span><ChatBubbleIcon />{other.title}</span>
+                    <span>{other.title}</span>
                     <span className="tab-tag">{roleNames[other.role]} · {providerNames[other.provider || 'chatgpt']}</span>
                     <button className="quiet-button" title="Focus this session" onClick={() => setActive(other.id)}>Focus</button>
-                    <button title="Close split view" onClick={() => setSplit(false)}><Cross2Icon /></button>
+                    <button className="quiet-button" title="Close split view" onClick={() => setSplit(false)}>Close</button>
                   </div>
                   <Chat key={other.id} session={other} connected={!!status?.providers?.[other.provider || 'chatgpt']?.connected} onError={setError} />
                 </section>
               ) : (
                 <aside className="inspector">
-                  <div className="inspector-heading">SESSION MONITOR <span className="live-label"><span className="connection-dot connected" /> LIVE</span></div>
-                  <div className="monitor-graphic" aria-hidden="true">{Array.from({ length: 20 }, (_, i) => <span key={i} />)}</div>
-                  <h3>{running.length ? `${running.length} session${running.length > 1 ? 's' : ''} at work` : 'Room for your next idea.'}</h3>
-                  <p>{running.length ? 'Switch conversations freely. Your other sessions keep working.' : 'Start a conversation, or give a specialist a focused task.'}</p>
+                  <div className="inspector-heading">Sessions</div>
+                  <h3>{running.length ? `${running.length} running` : 'Idle'}</h3>
+                  <p>{running.length ? 'Other chats keep working while you switch.' : 'Start a chat or open the agent desk.'}</p>
                   <div className="activity-list">
-                    {sessions.slice(0, 6).map(s => <button key={s.id} onClick={() => { setActive(s.id); if (s.id !== active && sessions.length > 1) setSplit(true); }}><span className={`session-dot ${s.status}`} /><div>{s.title}<small>{providerNames[s.provider || 'chatgpt']} · {s.status === 'running' ? s.activity : roleNames[s.role]}</small></div><ArrowTopRightIcon /></button>)}
-                    {!sessions.length && <div className="idle-line"><span className="session-dot" /> No active runs</div>}
+                    {sessions.slice(0, 6).map(s => <button key={s.id} onClick={() => { setActive(s.id); if (s.id !== active && sessions.length > 1) setSplit(true); }}><div>{s.title}<small>{providerNames[s.provider || 'chatgpt']} · {s.status === 'running' ? s.activity : roleNames[s.role]}</small></div></button>)}
+                    {!sessions.length && <div className="idle-line">No active runs</div>}
                   </div>
-                  <div className="inspector-divider" />
-                  <div className="eyebrow">MAKE IT YOUR OWN</div>
-                  <button className="inspector-action" onClick={() => setView('agents')}><CodeIcon /><span>Open the agent desk<small>Research · build · review · God mode</small></span><ArrowTopRightIcon /></button>
-                  <button className="inspector-action" onClick={() => setView('connections')}><MixerHorizontalIcon /><span>Manage connections<small>Cursor · Gemini · ChatGPT</small></span><ArrowTopRightIcon /></button>
-                  <button className="inspector-action" onClick={() => setView('knowledge')}><ReaderIcon /><span>Braindump / daily brief<small>COG flows in Knowledge</small></span><ArrowTopRightIcon /></button>
-                  <div className="efficiency-note"><LightningBoltIcon /><h4>Second brain, not autopilot.</h4><p>Unlimited saved sessions. You start every run. No autonomous job loops in v1.</p></div>
+                  <div className="inspector-links">
+                    <button type="button" onClick={() => setView('agents')}>Agent desk</button>
+                    <button type="button" onClick={() => setView('connections')}>Connections</button>
+                    <button type="button" onClick={() => setView('knowledge')}>Knowledge</button>
+                  </div>
                 </aside>
               )}
             </div>
@@ -415,22 +415,19 @@ export default function Dashboard() {
                 </label>
               </div>
               <div className="agent-grid">
-                {(['chat', 'research', 'build', 'review', 'god'] as Role[]).map((role, i) => {
-                  const Icon = roleIcons[role];
+                {(['chat', 'research', 'build', 'review', 'god'] as Role[]).map((role) => {
                   const blurb = {
-                    chat: 'A clear head for everyday questions, ideas, and decisions.',
-                    research: 'Follow a question. Gather evidence. Find the useful answer.',
-                    build: 'Turn a specific task into working code in this workspace.',
-                    review: 'A second pair of eyes for your plans, writing, and code.',
-                    god: 'Fast AF · browser control · high effort on Cursor / Gemini / ChatGPT subs — never Ollama by default.',
+                    chat: 'Everyday questions, ideas, and decisions.',
+                    research: 'Follow a question and gather evidence.',
+                    build: 'Turn a task into working code here.',
+                    review: 'A second pass on plans, writing, or code.',
+                    god: 'Fast runs with browser tools on subscription CLIs.',
                   }[role];
                   return (
                     <button key={role} className={`agent-card${role === 'god' ? ' agent-card-god' : ''}`} onClick={() => void create(role)} disabled={creating}>
-                      <span className="agent-index">{role === 'god' ? 'GM' : `0${i + 1}`}</span>
-                      <Icon />
                       <h3>{roleNames[role]}</h3>
                       <p>{blurb}</p>
-                      <span className="agent-start">{role === 'god' ? 'Unlock God mode' : 'Start session'} <ArrowTopRightIcon /></span>
+                      <span className="agent-start">{role === 'god' ? 'Start God mode' : 'Start'}</span>
                     </button>
                   );
                 })}
@@ -439,16 +436,15 @@ export default function Dashboard() {
                 <h3>All sessions</h3>
                 {sessions.map(s => (
                   <div key={s.id}>
-                    <span className={`session-dot ${s.status}`} />
                     <button onClick={() => { setActive(s.id); setView('workspace'); }}>{s.title}</button>
                     <span>{roleNames[s.role]}</span>
                     <span>{s.status}</span>
                     {s.status === 'running'
                       ? <button onClick={() => api(`sessions/${s.id}/stop`, 'POST').catch(e => setError(String(e)))}>Stop</button>
-                      : <button aria-label={`Delete ${s.title}`} onClick={() => { if (confirm('Delete this saved conversation?')) api(`sessions/${s.id}`, 'DELETE').then(() => { if (active === s.id) setActive(''); }).catch(e => setError(String(e))); }}><Cross2Icon /></button>}
+                      : <button aria-label={`Delete ${s.title}`} onClick={() => { if (confirm('Delete this saved conversation?')) api(`sessions/${s.id}`, 'DELETE').then(() => { if (active === s.id) setActive(''); }).catch(e => setError(String(e))); }}>Delete</button>}
                   </div>
                 ))}
-                {!sessions.length && <p>No sessions yet. Choose a specialist above to begin.</p>}
+                {!sessions.length && <p>No sessions yet.</p>}
               </div>
             </div>
           ) : (
@@ -471,10 +467,10 @@ export default function Dashboard() {
                       {!connection?.connected && <code className="login-command">{connection?.loginCommand || 'Checking…'}</code>}
                     </div>
                     <div className="connection-actions">
-                      <span className={connection?.connected ? 'connection-pill' : 'neutral-pill'}>{connection?.connected ? (isFallback ? 'FALLBACK READY' : 'CONNECTED') : 'SETUP NEEDED'}</span>
+                      <span className="connection-status">{connection?.connected ? (isFallback ? 'Fallback ready' : 'Connected') : 'Setup needed'}</span>
                       {connection?.connected
                         ? <button className="quiet-button" onClick={() => { setProvider(id); setNotice(isFallback ? 'Ollama selected as temporary local fallback.' : `${providerNames[id]} selected for new conversations.`); }}>Use for new chats</button>
-                        : <button className="quiet-button" onClick={() => login(id)}>{isFallback ? 'Start local' : 'Connect'} <ArrowTopRightIcon /></button>}
+                        : <button className="quiet-button" onClick={() => login(id)}>{isFallback ? 'Start local' : 'Connect'}</button>}
                     </div>
                   </div>
                 );
@@ -495,32 +491,31 @@ export default function Dashboard() {
             </div>
           )}
         <footer className="statusbar">
-          <span><span className={`connection-dot ${online ? 'connected' : ''}`} /> {online ? 'LOCAL BRIDGE ONLINE' : 'RECONNECTING'}</span>
-          <span>JARVIS <i>/</i> UNIFIED VAULT</span>
-          <span>⌘ J new chat <i>·</i> ⌘ K search</span>
+          <span>{online ? 'Bridge online' : 'Reconnecting'}</span>
+          <span>JARVIS</span>
+          <span>⌘J new · ⌘K search</span>
         </footer>
       </div>
     </div>
   );
 }
 
-function Metric({ label, value, detail, live = false }: { label: string; value: string; detail: string; live?: boolean }) {
-  return <div className="metric"><span>{label}</span><strong>{live && <span className="metric-dot" />}{value}</strong><small>{detail}</small></div>;
+function Metric({ label, value, detail }: { label: string; value: string; detail: string; live?: boolean }) {
+  return <div className="metric"><span>{label}</span><strong>{value}</strong><small>{detail}</small></div>;
 }
 
 function Welcome({ onCreate }: { onCreate?: (r: Role) => void }) {
   return (
     <div className="welcome welcome-taste">
       <Hero3D />
-      <div className="eyebrow">PERSONAL AI WORKSPACE · CLASSIC B/W</div>
       <h2>What's on your mind?</h2>
-      <p>Work things out, chase an idea, or make something worth keeping — with your vault beside you.</p>
+      <p>Think, build, or dig in - vault on the side.</p>
       {onCreate && (
         <div className="suggestions">
-          <button onClick={() => onCreate('chat')}><ChatBubbleIcon />Think something through<ArrowTopRightIcon /></button>
-          <button onClick={() => onCreate('build')}><CodeIcon />Build something useful<ArrowTopRightIcon /></button>
-          <button onClick={() => onCreate('research')}><MagnifyingGlassIcon />Explore a question<ArrowTopRightIcon /></button>
-          <button className="god-suggestion" onClick={() => onCreate('god')}><LightningBoltIcon />God mode — fast + browser<ArrowTopRightIcon /></button>
+          <button onClick={() => onCreate('chat')}>Think something through</button>
+          <button onClick={() => onCreate('build')}>Build something useful</button>
+          <button onClick={() => onCreate('research')}>Explore a question</button>
+          <button className="god-suggestion" onClick={() => onCreate('god')}>God mode</button>
         </div>
       )}
     </div>
@@ -545,7 +540,8 @@ function Chat({ session: s, connected, onError, wakeToken = 0, wakeArmed = false
   const draftRef = useRef('');
   const running = s.status === 'running';
   const voiceIn = localStorage.getItem('jarvis.voiceIn') !== 'off';
-  const voiceOut = localStorage.getItem('jarvis.voiceOut') !== 'off';
+  // Listen-only: TTS / speak-out stays off unless explicitly re-enabled later.
+  const voiceOut = localStorage.getItem('jarvis.voiceOut') === 'on';
   const autoSpeak = localStorage.getItem('jarvis.autoSpeak') === 'on';
   const autoSend = localStorage.getItem('jarvis.autoSend') === 'on';
   const lastSpoken = useRef('');
@@ -734,7 +730,7 @@ function Chat({ session: s, connected, onError, wakeToken = 0, wakeArmed = false
     <>
       <div className="chat-context">
         <span><span className={`connection-dot ${connected ? 'connected' : ''}`} /> {providerNames[s.provider || 'chatgpt']} <span className="muted-text">/ {s.provider === 'cursor' ? 'Auto' : s.provider === 'ollama' ? 'Local' : s.provider === 'gemini' ? 'Google' : s.effort === 'low' ? 'Lean' : s.effort === 'medium' ? 'Balanced' : 'Deep'}</span></span>
-        <button title="Export conversation" onClick={download} disabled={!s.messages.length}><DownloadIcon /></button>
+        <button type="button" className="text-action" title="Export conversation" onClick={download} disabled={!s.messages.length}>Export</button>
       </div>
       {s.contextSources?.length ? (
         <details className="context-sources">
@@ -748,12 +744,9 @@ function Chat({ session: s, connected, onError, wakeToken = 0, wakeArmed = false
             <div className="message-label">
               <span>{m.role === 'user' ? 'YOU' : 'JARVIS'}</span>
               <span className="message-actions">
-                {m.role === 'assistant' && m.content && voiceOut && (
-                  <button title="Speak message" aria-label="Speak message" onClick={() => void speakText(m.content, { onStart: () => onPhase?.('speaking'), onEnd: () => onPhase?.('idle') })}><SpeakerLoudIcon /></button>
-                )}
                 {m.content && (
                   <button title="Copy message" onClick={() => navigator.clipboard.writeText(m.content).then(() => { setCopied(m.id); setTimeout(() => setCopied(''), 1500); }).catch(() => onError('Clipboard is unavailable. Select and copy the text.'))}>
-                    {copied === m.id ? <CheckCircledIcon /> : <CopyIcon />}
+                    {copied === m.id ? 'Copied' : 'Copy'}
                   </button>
                 )}
               </span>
@@ -773,18 +766,18 @@ function Chat({ session: s, connected, onError, wakeToken = 0, wakeArmed = false
             <span><span className="prompt-mark">&gt;_</span> {roleNames[s.role]} <span className="composer-mode">{s.role === 'god' ? 'Browser · high effort · sub CLIs' : s.role === 'build' ? 'Workspace edits' : 'Read-only tools'}{s.browserControl ? ' · browser on' : ''}</span></span>
             <div className="composer-actions">
               {voiceIn && (
-                <button className={`mic-button ${listening ? 'recording' : ''}`} aria-label={listening ? 'Stop listening' : 'Dictate with microphone'} title={listening ? `Stop · ${micMode}` : 'Mic · Whisper preferred, Web Speech fallback'} onClick={() => { void toggleMic(); }} disabled={running || sending}>
-                  <MicIcon />
+                <button type="button" className={`mic-button ${listening ? 'recording' : ''}`} aria-label={listening ? 'Stop listening' : 'Dictate with microphone'} title={listening ? `Stop · ${micMode}` : 'Mic · Whisper preferred, Web Speech fallback'} onClick={() => { void toggleMic(); }} disabled={running || sending}>
+                  {listening ? 'Stop' : 'Mic'}
                 </button>
               )}
               {running
-                ? <button className="send-button stop" aria-label="Stop response" onClick={() => api(`sessions/${s.id}/stop`, 'POST').catch(e => onError(String(e)))}><StopIcon /></button>
-                : <button className="send-button" aria-label="Send message" disabled={!draft.trim() || sending || !connected} onClick={() => void send()}><ArrowUpIcon /></button>}
+                ? <button type="button" className="send-button stop" aria-label="Stop response" onClick={() => api(`sessions/${s.id}/stop`, 'POST').catch(e => onError(String(e)))}>Stop</button>
+                : <button type="button" className="send-button" aria-label="Send message" disabled={!draft.trim() || sending || !connected} onClick={() => void send()}>Send</button>}
             </div>
           </div>
         </div>
         <div className="composer-hint">
-          <span>{running ? 'Working in the background. You can switch sessions.' : !connected ? `Connect ${providerNames[s.provider || 'chatgpt']} in Connections to send messages.` : listening ? (micMode === 'whisper' ? 'Listening… tap mic to finish & transcribe' : 'Listening…') : 'Enter · FreeFlow Fn dictate · Mic fallback · hey jarvis'}</span>
+          <span>{running ? 'Working in the background.' : !connected ? `Connect ${providerNames[s.provider || 'chatgpt']} to send.` : listening ? 'Listening… tap mic to finish' : 'Enter to send · Fn FreeFlow · Mic for input'}</span>
           <span>{s.elapsedMs ? `${(s.elapsedMs / 1000).toFixed(1)}s` : 'Free / subscription'}</span>
         </div>
       </div>

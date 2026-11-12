@@ -313,10 +313,10 @@ export function AppearancePanel({ value, onChange, onCursor }: { value: Appearan
 
 export function VoicePanel() {
   const [voiceIn, setVoiceIn] = useState(() => localStorage.getItem('jarvis.voiceIn') !== 'off');
-  const [voiceOut, setVoiceOut] = useState(() => localStorage.getItem('jarvis.voiceOut') !== 'off');
-  const [autoSpeak, setAutoSpeak] = useState(() => localStorage.getItem('jarvis.autoSpeak') === 'on');
+  const [voiceOut, setVoiceOut] = useState(false); // listen-only
+  const [autoSpeak, setAutoSpeak] = useState(false); // listen-only
   const [autoSend, setAutoSend] = useState(() => localStorage.getItem('jarvis.autoSend') === 'on');
-  const [wake, setWake] = useState(() => localStorage.getItem('jarvis.wakeWord') !== 'off');
+  const [wake, setWake] = useState(() => localStorage.getItem('jarvis.wakeWord') === 'on');
   const [ttsVoice, setTtsVoice] = useState(() => localStorage.getItem('jarvis.ttsVoice') || '');
   const [previewing, setPreviewing] = useState(false);
   const [speechHealth, setSpeechHealth] = useState<{
@@ -327,6 +327,7 @@ export function VoicePanel() {
     tts?: { engine?: string; voices?: { name: string; lang: string; rank: number }[]; defaultVoice?: string };
   } | null>(null);
   const [ffBusy, setFfBusy] = useState(false);
+  useEffect(() => { try { localStorage.setItem('jarvis.voiceOut','off'); localStorage.setItem('jarvis.autoSpeak','off'); } catch {} }, []);
   useEffect(() => { localStorage.setItem('jarvis.voiceIn', voiceIn ? 'on' : 'off'); }, [voiceIn]);
   useEffect(() => { localStorage.setItem('jarvis.voiceOut', voiceOut ? 'on' : 'off'); }, [voiceOut]);
   useEffect(() => { localStorage.setItem('jarvis.autoSpeak', autoSpeak ? 'on' : 'off'); }, [autoSpeak]);
@@ -364,8 +365,8 @@ export function VoicePanel() {
       <div className="section-heading">
         <div>
           <span className="eyebrow">TALK TO JARVIS</span>
-          <h2>Mic in. Speak out.</h2>
-          <p>Preferred STT: FreeFlow (free Mac dictation). TTS: macOS say. In-app Whisper / wake word as fallback. Chat stays on Cursor / Gemini / ChatGPT.</p>
+          <h2>Listen only.</h2>
+          <p>Dictate in. FreeFlow preferred, in-app mic as fallback. JARVIS does not speak replies.</p>
         </div>
       </div>
       <div className="voice-grid">
@@ -380,22 +381,11 @@ export function VoicePanel() {
         </div>
         <label className="voice-toggle"><input type="checkbox" checked={voiceIn} onChange={e => setVoiceIn(e.target.checked)} /><span><strong>In-app mic fallback</strong><small>{speechHealth?.whisper?.available ? `Whisper · ${speechHealth.whisper.model || 'ggml-tiny'}` : webSpeech ? 'Web Speech fallback' : 'Use FreeFlow or Mac Dictation'} · order {(speechHealth?.sttPrefer || []).join(' → ') || 'whisper → webspeech'}</small></span></label>
         <label className="voice-toggle"><input type="checkbox" checked={wake} onChange={e => setWake(e.target.checked)} /><span><strong>Wake word · “hey jarvis”</strong><small>{webSpeech ? 'Stricter match · cooldown · pauses while speaking' : 'Needs Web Speech in this browser'}</small></span></label>
-        <label className="voice-toggle"><input type="checkbox" checked={voiceOut} onChange={e => setVoiceOut(e.target.checked)} /><span><strong>Speak button on replies</strong><small>{speechHealth?.tts?.engine === 'macos-say' ? 'macOS say · natural system voices' : 'System TTS'}</small></span></label>
-        <label className="voice-toggle"><input type="checkbox" checked={autoSpeak} onChange={e => setAutoSpeak(e.target.checked)} /><span><strong>Auto-speak finished replies</strong><small>Uses your selected Mac voice</small></span></label>
         <label className="voice-toggle"><input type="checkbox" checked={autoSend} onChange={e => setAutoSend(e.target.checked)} /><span><strong>Auto-send after wake dictate</strong><small>Default off — fills composer first</small></span></label>
-        <label className="voice-toggle voice-select">
-          <span><strong>Speak voice</strong><small>Best free English voices from macOS say</small></span>
-          <select aria-label="TTS voice" value={ttsVoice} onChange={e => setTtsVoice(e.target.value)}>
-            {(voices.length ? voices : [{ name: speechHealth?.tts?.defaultVoice || 'Samantha', lang: 'en_US', rank: 100 }]).map(v => (
-              <option key={v.name} value={v.name}>{v.name}{v.rank >= 90 ? ' · recommended' : ''}</option>
-            ))}
-          </select>
-          <button type="button" className="quiet-button" onClick={() => void preview()} disabled={previewing}>{previewing ? 'Speaking…' : 'Preview'}</button>
-        </label>
       </div>
       <div className="settings-footnote">
         <h3>Flow</h3>
-        <p><strong>Best path:</strong> Open FreeFlow → focus JARVIS composer → hold Fn → talk → text lands in the box. <strong>Fallback:</strong> in-app Mic / hey jarvis → Whisper. <strong>Speak out:</strong> macOS say. No paid voice APIs required; Groq in FreeFlow is optional free tier, or point FreeFlow at local STT.</p>
+        <p><strong>Best path:</strong> FreeFlow → focus composer → hold Fn → text pastes. <strong>Fallback:</strong> Mic button or optional wake word. Listen only - no spoken replies.</p>
       </div>
     </section>
   );
