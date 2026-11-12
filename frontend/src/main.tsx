@@ -4,9 +4,8 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { BrowserRouter } from 'react-router';
 import { ErrorBoundary } from './components/ErrorBoundary';
-import App from './App';
+import Dashboard from './terminal/Dashboard';
 import { initApiBase } from './lib/api';
-import { initAnalytics } from './lib/analytics';
 import './index.css';
 
 function applyTheme() {
@@ -32,13 +31,13 @@ applyTheme();
 initApiBase().finally(() => {
   // Kick off analytics init in the background — it's never awaited so
   // a slow/failed identity fetch never delays UI render.
-  void initAnalytics();
+  // Subscription dashboard does not initialize upstream analytics.
 
   createRoot(document.getElementById('root')!).render(
     <StrictMode>
       <ErrorBoundary>
         <BrowserRouter>
-          <App />
+          <Dashboard />
         </BrowserRouter>
       </ErrorBoundary>
     </StrictMode>,
