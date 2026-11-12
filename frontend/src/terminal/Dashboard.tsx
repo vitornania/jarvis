@@ -1,16 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
-import { Cross2Icon, HamburgerMenuIcon } from '@radix-ui/react-icons';
+import { BellIcon, Cross2Icon, GearIcon, HamburgerMenuIcon } from '@radix-ui/react-icons';
 import '@fontsource-variable/geist';
 import './terminal.css';
 import { Knowledge, Skills, AppearancePanel, VoicePanel, PALETTES, type BrainState, type Appearance, type PaletteId } from './BrainPanels';
-import { Hero3D, RailGlyph } from './Hero3D';
+import { RailGlyph } from './Hero3D';
 import { Composer } from './Composer';
 import { ElixirEcomPanel, type ElixirMcpStatus } from './ElixirEcomPanel';
 import { speakText, stopSpeaking, matchesWakeWord, phaseLabel, type VoicePhase } from './voice';
-import { IconHome, IconStats, IconCard, IconBuild, IconPerson, IconDoc, IconMic, IconPalette, IconSettings, IconBell } from './VisionIcons';
 import './shell.css';
-import type { ReactNode } from 'react';
 
 type Provider = 'chatgpt' | 'claude' | 'cursor' | 'gemini' | 'ollama';
 const providerNames: Record<Provider, string> = { chatgpt: 'ChatGPT', claude: 'Claude', cursor: 'Cursor', gemini: 'Gemini', ollama: 'Ollama' };
@@ -102,13 +100,13 @@ export default function Dashboard() {
       const themeQ = q.get('theme');
       const paletteQ = q.get('palette') as PaletteId | null;
       if (themeQ && ['dark', 'light', 'system'].includes(themeQ)) {
-        const palette = paletteQ && paletteIds.includes(paletteQ) ? paletteQ : 'ink';
+        const palette = paletteQ && paletteIds.includes(paletteQ) ? paletteQ : 'amber';
         return { theme: themeQ as Appearance['theme'], palette };
       }
       const a = JSON.parse(localStorage.getItem('terminal.appearance') || 'null');
       if (a && ['dark', 'light', 'system'].includes(a.theme) && paletteIds.includes(a.palette)) return a;
     } catch { /* ignore */ }
-    return { theme: 'dark', palette: 'ink' };
+    return { theme: 'system', palette: 'amber' };
   });
   const [systemDark, setSystemDark] = useState(window.matchMedia('(prefers-color-scheme: dark)').matches);
   const [wakeHeard, setWakeHeard] = useState(0);
@@ -302,27 +300,27 @@ export default function Dashboard() {
   });
 
   const totalTokens = sessions.reduce((n, s) => n + (s.usage?.output_tokens || 0), 0);
-  // Vision UI sidenav order — labels swapped to JARVIS (design unchanged)
-  const navMain: { id: string; name: string; ico: ReactNode }[] = [
-    { id: 'workspace', name: 'Workspace', ico: <IconHome /> },
-    { id: 'agents', name: 'Agent desk', ico: <IconStats /> },
-    { id: 'elixir', name: 'ELIXIR ECOM', ico: <IconCard /> },
-    { id: 'skills', name: 'Skills', ico: <IconBuild /> },
+  // Text-first rail — taste-skill terminal chrome (no icon soup)
+  const navMain: { id: string; name: string }[] = [
+    { id: 'workspace', name: 'Workspace' },
+    { id: 'agents', name: 'Agent desk' },
+    { id: 'elixir', name: 'ELIXIR ECOM' },
+    { id: 'skills', name: 'Skills' },
   ];
-  const navAccount: { id: string; name: string; ico: ReactNode }[] = [
-    { id: 'connections', name: 'Connections', ico: <IconPerson /> },
-    { id: 'knowledge', name: 'Knowledge', ico: <IconDoc /> },
-    { id: 'voice', name: 'Voice', ico: <IconMic /> },
-    { id: 'appearance', name: 'Appearance', ico: <IconPalette /> },
+  const navAccount: { id: string; name: string }[] = [
+    { id: 'connections', name: 'Connections' },
+    { id: 'knowledge', name: 'Knowledge' },
+    { id: 'voice', name: 'Voice' },
+    { id: 'appearance', name: 'Appearance' },
   ];
   const heading = {
     workspace: ['Workspace', 'Think, build, and dig in. Vault beside you. Cursor first when connected.'],
     agents: ['Agent desk', 'Research, build, review, and God mode on subscription CLIs.'],
-    elixir: ['ELIXIR ECOM', 'Ecommerce MCP for Elixir. Attach in Cursor - no credentials stored here.'],
+    elixir: ['ELIXIR ECOM', 'Ecommerce MCP for Elixir. Attach in Cursor — no credentials stored here.'],
     connections: ['Connections', 'Cursor preferred. Gemini and ChatGPT next. Ollama is local fallback only.'],
     knowledge: ['Knowledge', 'Beaumont Voss, Talvori, personal, and Zeta in one vault.'],
     skills: ['Skills', 'Ecommerce packs and COG tools. Load only what you need.'],
-    appearance: ['Appearance', 'Vision UI chrome. Text only changes — design stays Creative Tim Vision.'],
+    appearance: ['Appearance', 'Terminal chrome. Amber accent. Dark, light, or system.'],
     voice: ['Voice', 'Listen only. FreeFlow preferred. Mic as fallback. No speak-out.'],
   } as Record<string, [string, string]>;
 
@@ -354,10 +352,9 @@ export default function Dashboard() {
     finally { setCreatingMeta(false); }
   }
 
-  function NavButton({ item }: { item: { id: string; name: string; ico: ReactNode } }) {
+  function NavButton({ item }: { item: { id: string; name: string } }) {
     return (
       <button type="button" className={view === item.id ? 'selected' : ''} onClick={() => { setView(item.id); setMobile(false); }}>
-        <span className="nav-ico" aria-hidden="true">{item.ico}</span>
         <span className="nav-label">{item.name}</span>
         {item.id === 'workspace' && sessions.length > 0 ? <span className="nav-count">{sessions.length}</span> : null}
       </button>
@@ -377,12 +374,12 @@ export default function Dashboard() {
         <nav className="rail-nav" aria-label="Main navigation">
           {navMain.map(item => <NavButton key={item.id} item={item} />)}
         </nav>
-        <div className="rail-nav-label">Account Pages</div>
-        <nav className="rail-nav" aria-label="Account navigation">
+        <div className="rail-nav-label">System</div>
+        <nav className="rail-nav" aria-label="System navigation">
           {navAccount.map(item => <NavButton key={item.id} item={item} />)}
         </nav>
 
-        <div className="rail-nav-label">Workspaces</div>
+        <div className="rail-nav-label">Context</div>
         <div className="rail-context project-controls">
           <label className="provider-picker">WORKSPACE
             <select aria-label="Active workspace" value={activeWorkspace?.id || 'jarvis'} onChange={e => setWorkspaceId(e.target.value)}>
@@ -404,9 +401,9 @@ export default function Dashboard() {
             </select>
           </label>
           <label className="memory-switch"><input type="checkbox" checked={memoryEnabled} onChange={e => setMemoryEnabled(e.target.checked)} />Use saved context<span>{selectedSkills.length ? `${selectedSkills.length} skills` : ''}</span></label>
-          <div className="rail-create-actions" style={{ margin: '8px 16px 0', display: 'flex', gap: 6 }}>
-            <button type="button" className="ghost" style={{ flex: 1, border: 0, borderRadius: 12, padding: '8px 10px', fontSize: 10, fontWeight: 700, letterSpacing: '.06em', textTransform: 'uppercase', background: 'rgba(255,255,255,.06)', color: 'var(--vui-text)' }} onClick={() => { setCreateMode('workspace'); setCreateName(''); }}>New workspace</button>
-            <button type="button" className="ghost" style={{ flex: 1, border: 0, borderRadius: 12, padding: '8px 10px', fontSize: 10, fontWeight: 700, letterSpacing: '.06em', textTransform: 'uppercase', background: 'rgba(255,255,255,.06)', color: 'var(--vui-text)' }} onClick={() => { setCreateMode('project'); setCreateName(''); }}>New project</button>
+          <div className="rail-create-actions">
+            <button type="button" className="ghost" onClick={() => { setCreateMode('workspace'); setCreateName(''); }}>New workspace</button>
+            <button type="button" className="ghost" onClick={() => { setCreateMode('project'); setCreateName(''); }}>New project</button>
           </div>
           {createMode && (
             <div className="rail-create">
@@ -440,12 +437,6 @@ export default function Dashboard() {
         </div>
 
         <div className="rail-footer-stack">
-          <div className="rail-help">
-            <div className="help-ico" aria-hidden="true">★</div>
-            <strong>Need help?</strong>
-            <p>Please check our docs</p>
-            <button type="button" onClick={() => { setView('connections'); setMobile(false); }}>DOCUMENTATION</button>
-          </div>
           <button className="new-session rail-upgrade" onClick={() => create()} disabled={creating}>New conversation <kbd>⌘J</kbd></button>
         </div>
       </aside>
@@ -453,10 +444,10 @@ export default function Dashboard() {
       <div className="main-shell">
         <header className="topbar">
           <button className="mobile-toggle" aria-label="Open menu" onClick={() => setMobile(!mobile)}><HamburgerMenuIcon /></button>
-          <div className="breadcrumb">Pages <span>/</span> <strong>{viewNames[view]}</strong></div>
+          <div className="breadcrumb">jarvis <span>/</span> <strong>{viewNames[view]}</strong></div>
           <label className="top-search">
             <input
-              placeholder="Type here…"
+              placeholder="Find conversation…"
               aria-label="Search conversations"
               value={search}
               onChange={e => setSearch(e.target.value)}
@@ -467,8 +458,8 @@ export default function Dashboard() {
             {status ? `${connectedCount} connected` : 'Checking…'}
             {voicePhase !== 'idle' ? <em>{phaseLabel(voicePhase)}</em> : <em>{bridgeLabel}</em>}
           </div>
-          <button type="button" className="top-icon-btn" aria-label="Notifications" onClick={() => setView('workspace')}><IconBell /></button>
-          <button type="button" className="top-icon-btn" aria-label="Settings" onClick={() => setView('appearance')}><IconSettings /></button>
+          <button type="button" className="top-icon-btn" aria-label="Workspace" onClick={() => setView('workspace')}><BellIcon /></button>
+          <button type="button" className="top-icon-btn" aria-label="Appearance" onClick={() => setView('appearance')}><GearIcon /></button>
         </header>
         <div className="workspace-heading">
           <div>
@@ -480,38 +471,26 @@ export default function Dashboard() {
           )}
         </div>
         {(view === 'workspace' || view === 'agents') && (
-          <div className="vui-stats" aria-label="Workspace status">
-            <div className="vui-stat">
-              <div>
-                <span>Provider</span>
-                <strong>{providerNames[provider]}</strong>
-                <small className={providerReady ? undefined : 'warn'}>{providerReady ? 'Ready' : 'Setup needed'}</small>
-              </div>
-              <div className="vui-stat-ico" aria-hidden="true">P</div>
+          <div className="status-strip" aria-label="Workspace status">
+            <div>
+              <span>Provider</span>
+              <strong>{providerNames[provider]}</strong>
+              <small className={providerReady ? undefined : 'warn'}>{providerReady ? 'Ready' : 'Setup needed'}</small>
             </div>
-            <div className="vui-stat">
-              <div>
-                <span>Running</span>
-                <strong>{running.length}</strong>
-                <small>{running.length ? 'Active jobs' : 'Idle'}</small>
-              </div>
-              <div className="vui-stat-ico" aria-hidden="true">R</div>
+            <div>
+              <span>Running</span>
+              <strong>{running.length}</strong>
+              <small>{running.length ? 'Active jobs' : 'Idle'}</small>
             </div>
-            <div className="vui-stat">
-              <div>
-                <span>Tokens out</span>
-                <strong>{number(totalTokens)}</strong>
-                <small>This session set</small>
-              </div>
-              <div className="vui-stat-ico" aria-hidden="true">T</div>
+            <div>
+              <span>Tokens out</span>
+              <strong>{number(totalTokens)}</strong>
+              <small>This session set</small>
             </div>
-            <div className="vui-stat">
-              <div>
-                <span>Billing</span>
-                <strong>Sub only</strong>
-                <small>No paid API keys</small>
-              </div>
-              <div className="vui-stat-ico" aria-hidden="true">$</div>
+            <div>
+              <span>Billing</span>
+              <strong>Sub only</strong>
+              <small>No paid API keys</small>
             </div>
           </div>
         )}
@@ -662,10 +641,10 @@ export default function Dashboard() {
 
 function Welcome({ onCreate }: { onCreate?: (r: Role) => void }) {
   return (
-    <div className="welcome welcome-scratch">
-      <Hero3D />
+    <div className="welcome welcome-terminal">
+      <p className="welcome-prompt">$ jarvis <span>— ready</span></p>
       <h2>What's on your mind?</h2>
-      <p>Think, build, or dig in - vault on the side.</p>
+      <p>Think, build, or dig in. Vault on the side. Subscription CLIs first.</p>
       {onCreate && (
         <div className="suggestions">
           <button type="button" onClick={() => onCreate('chat')}>Think something through</button>
