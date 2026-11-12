@@ -1,14 +1,30 @@
 import { useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
-import { BellIcon, Cross2Icon, GearIcon, HamburgerMenuIcon } from '@radix-ui/react-icons';
+import { Cross2Icon, HamburgerMenuIcon } from '@radix-ui/react-icons';
 import '@fontsource-variable/geist';
 import './terminal.css';
 import { Knowledge, Skills, AppearancePanel, VoicePanel, PALETTES, type BrainState, type Appearance, type PaletteId } from './BrainPanels';
-import { RailGlyph } from './Hero3D';
 import { Composer } from './Composer';
 import { ElixirEcomPanel, type ElixirMcpStatus } from './ElixirEcomPanel';
 import { speakText, stopSpeaking, matchesWakeWord, phaseLabel, type VoicePhase } from './voice';
 import './shell.css';
+
+const TASTE_ICONS: Record<string, string> = {
+  workspace: 'workspace',
+  agents: 'agents',
+  elixir: 'elixir',
+  knowledge: 'knowledge',
+  skills: 'skills',
+  connections: 'connections',
+  voice: 'voice',
+  appearance: 'appearance',
+};
+function tasteIcon(id: string, light: boolean) {
+  const name = TASTE_ICONS[id];
+  if (!name) return null;
+  const src = `/taste/ico-${name}${light ? '-light' : ''}.png`;
+  return <span className="nav-ico" aria-hidden="true"><img src={src} alt="" width={16} height={16} /></span>;
+}
 
 type Provider = 'chatgpt' | 'claude' | 'cursor' | 'gemini' | 'ollama';
 const providerNames: Record<Provider, string> = { chatgpt: 'ChatGPT', claude: 'Claude', cursor: 'Cursor', gemini: 'Gemini', ollama: 'Ollama' };
@@ -300,16 +316,16 @@ export default function Dashboard() {
   });
 
   const totalTokens = sessions.reduce((n, s) => n + (s.usage?.output_tokens || 0), 0);
-  // Text-first rail — taste-skill terminal chrome (no icon soup)
-  const navMain: { id: string; name: string }[] = [
+  // Text-first rail — Navigate (work) then Setup (system)
+  const navWork: { id: string; name: string }[] = [
     { id: 'workspace', name: 'Workspace' },
     { id: 'agents', name: 'Agent desk' },
     { id: 'elixir', name: 'ELIXIR ECOM' },
+    { id: 'knowledge', name: 'Knowledge' },
     { id: 'skills', name: 'Skills' },
   ];
-  const navAccount: { id: string; name: string }[] = [
+  const navSetup: { id: string; name: string }[] = [
     { id: 'connections', name: 'Connections' },
-    { id: 'knowledge', name: 'Knowledge' },
     { id: 'voice', name: 'Voice' },
     { id: 'appearance', name: 'Appearance' },
   ];
@@ -352,9 +368,13 @@ export default function Dashboard() {
     finally { setCreatingMeta(false); }
   }
 
+  const resolvedTheme = appearance.theme === 'system' ? (systemDark ? 'dark' : 'light') : appearance.theme;
+  const isLight = resolvedTheme === 'light';
+
   function NavButton({ item }: { item: { id: string; name: string } }) {
     return (
       <button type="button" className={view === item.id ? 'selected' : ''} onClick={() => { setView(item.id); setMobile(false); }}>
+        {tasteIcon(item.id, isLight)}
         <span className="nav-label">{item.name}</span>
         {item.id === 'workspace' && sessions.length > 0 ? <span className="nav-count">{sessions.length}</span> : null}
       </button>
@@ -362,82 +382,92 @@ export default function Dashboard() {
   }
 
   return (
-    <div className="terminal-app" data-theme={appearance.theme === 'system' ? (systemDark ? 'dark' : 'light') : appearance.theme} data-palette={appearance.palette}>
+    <div className="terminal-app" data-theme={resolvedTheme} data-palette={appearance.palette}>
       <aside className={`rail ${mobile ? 'is-open' : ''}`}>
         <div className="rail-brand">
           <a className="brand" href="/" aria-label="JARVIS home">
-            <RailGlyph />
+            <img className="brand-mark" src="/taste/mark-jarvis-amber.png" alt="" width={28} height={28} />
             <span className="brand-word">JARVIS</span>
           </a>
         </div>
-        <div className="rail-divider" />
-        <nav className="rail-nav" aria-label="Main navigation">
-          {navMain.map(item => <NavButton key={item.id} item={item} />)}
-        </nav>
-        <div className="rail-nav-label">System</div>
-        <nav className="rail-nav" aria-label="System navigation">
-          {navAccount.map(item => <NavButton key={item.id} item={item} />)}
-        </nav>
 
-        <div className="rail-nav-label">Context</div>
-        <div className="rail-context project-controls">
-          <label className="provider-picker">WORKSPACE
-            <select aria-label="Active workspace" value={activeWorkspace?.id || 'jarvis'} onChange={e => setWorkspaceId(e.target.value)}>
-              {workspaces.map(w => <option key={w.id} value={w.id}>{w.name}{w.primary ? ' · primary' : ''}</option>)}
-            </select>
-          </label>
-          <label className="provider-picker">PROJECT INSIDE WORKSPACE
-            <select aria-label="Project for new chats" value={project} onChange={e => setProject(e.target.value)}>
-              <option value="beaumont-voss">Beaumont Voss · primary</option>
-              <option value="global">All knowledge</option>
-              {workspaceProjects.filter(p => p.id !== 'beaumont-voss').map(p => <option key={p.id} value={p.id}>{p.name}{p.id === 'market-research' ? ' (= Beaumont)' : ''}</option>)}
-            </select>
-          </label>
-          <label className="provider-picker">PROVIDER FOR NEW CHATS
-            <select aria-label="Provider for new chats" value={provider} onChange={e => setProvider(e.target.value as Provider)}>
-              {connectionOrder.map(id => (
-                <option key={id} value={id}>{providerNames[id]}{id === 'ollama' ? ' · local fallback' : primaryProviders.includes(id) ? ' · preferred' : ''}{status?.providers?.[id]?.connected ? ' · connected' : ' · setup needed'}</option>
-              ))}
-            </select>
-          </label>
-          <label className="memory-switch"><input type="checkbox" checked={memoryEnabled} onChange={e => setMemoryEnabled(e.target.checked)} />Use saved context<span>{selectedSkills.length ? `${selectedSkills.length} skills` : ''}</span></label>
-          <div className="rail-create-actions">
-            <button type="button" className="ghost" onClick={() => { setCreateMode('workspace'); setCreateName(''); }}>New workspace</button>
-            <button type="button" className="ghost" onClick={() => { setCreateMode('project'); setCreateName(''); }}>New project</button>
-          </div>
-          {createMode && (
-            <div className="rail-create">
-              <h4>{createMode === 'workspace' ? 'Create workspace' : `Create project in ${activeWorkspace?.name || 'JARVIS'}`}</h4>
-              <input
-                autoFocus
-                placeholder={createMode === 'workspace' ? 'Workspace name' : 'Project name'}
-                value={createName}
-                onChange={e => setCreateName(e.target.value)}
-                onKeyDown={e => { if (e.key === 'Enter') void submitCreate(); if (e.key === 'Escape') setCreateMode(null); }}
-              />
-              <div className="rail-create-actions">
-                <button type="button" className="ghost" onClick={() => setCreateMode(null)}>Cancel</button>
-                <button type="button" className="primary" disabled={creatingMeta || !createName.trim()} onClick={() => void submitCreate()}>{creatingMeta ? 'Saving…' : 'Create'}</button>
-              </div>
-            </div>
-          )}
+        <div className="rail-compose">
+          <button className="new-session" onClick={() => create()} disabled={creating}>New conversation <kbd>⌘J</kbd></button>
         </div>
 
-        <div className="rail-sessions">
+        <div className="rail-block">
+          <div className="rail-nav-label">Navigate</div>
+          <nav className="rail-nav" aria-label="Main navigation">
+            {navWork.map(item => <NavButton key={item.id} item={item} />)}
+          </nav>
+        </div>
+
+        <div className="rail-block">
+          <div className="rail-nav-label">Setup</div>
+          <nav className="rail-nav" aria-label="Setup navigation">
+            {navSetup.map(item => <NavButton key={item.id} item={item} />)}
+          </nav>
+        </div>
+
+        <div className="rail-block">
+          <div className="rail-nav-label">Context</div>
+          <div className="rail-context project-controls">
+            <label className="provider-picker">Workspace
+              <select aria-label="Active workspace" value={activeWorkspace?.id || 'jarvis'} onChange={e => setWorkspaceId(e.target.value)}>
+                {workspaces.map(w => <option key={w.id} value={w.id}>{w.name}{w.primary ? ' · primary' : ''}</option>)}
+              </select>
+            </label>
+            <label className="provider-picker">Project
+              <select aria-label="Project for new chats" value={project} onChange={e => setProject(e.target.value)}>
+                <option value="beaumont-voss">Beaumont Voss · primary</option>
+                <option value="global">All knowledge</option>
+                {workspaceProjects.filter(p => p.id !== 'beaumont-voss').map(p => <option key={p.id} value={p.id}>{p.name}{p.id === 'market-research' ? ' (= Beaumont)' : ''}</option>)}
+              </select>
+            </label>
+            <label className="provider-picker">Provider
+              <select aria-label="Provider for new chats" value={provider} onChange={e => setProvider(e.target.value as Provider)}>
+                {connectionOrder.map(id => {
+                  const connected = !!status?.providers?.[id]?.connected;
+                  const suffix = id === 'ollama' ? (connected ? 'fallback' : 'offline') : (connected ? 'ready' : 'setup');
+                  return <option key={id} value={id}>{providerNames[id]} · {suffix}</option>;
+                })}
+              </select>
+            </label>
+            <label className="memory-switch"><input type="checkbox" checked={memoryEnabled} onChange={e => setMemoryEnabled(e.target.checked)} />Saved context<span>{selectedSkills.length ? `${selectedSkills.length} skills` : ''}</span></label>
+            <div className="rail-create-actions">
+              <button type="button" className="ghost" onClick={() => { setCreateMode('workspace'); setCreateName(''); }}>New workspace</button>
+              <button type="button" className="ghost" onClick={() => { setCreateMode('project'); setCreateName(''); }}>New project</button>
+            </div>
+            {createMode && (
+              <div className="rail-create">
+                <h4>{createMode === 'workspace' ? 'Create workspace' : `Create project in ${activeWorkspace?.name || 'JARVIS'}`}</h4>
+                <input
+                  autoFocus
+                  placeholder={createMode === 'workspace' ? 'Workspace name' : 'Project name'}
+                  value={createName}
+                  onChange={e => setCreateName(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') void submitCreate(); if (e.key === 'Escape') setCreateMode(null); }}
+                />
+                <div className="rail-create-actions">
+                  <button type="button" className="ghost" onClick={() => setCreateMode(null)}>Cancel</button>
+                  <button type="button" className="primary" disabled={creatingMeta || !createName.trim()} onClick={() => void submitCreate()}>{creatingMeta ? 'Saving…' : 'Create'}</button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="rail-sessions rail-block">
           <div className="rail-section"><span>Conversations</span></div>
           <label className="session-search"><input id="session-search" placeholder="Find a conversation" aria-label="Find a conversation" value={search} onChange={e => setSearch(e.target.value)} /></label>
           <div className="session-list">
-            {sessions.filter(s => s.title.toLowerCase().includes(search.toLowerCase())).slice(0, 3).map(s => (
+            {sessions.filter(s => s.title.toLowerCase().includes(search.toLowerCase())).slice(0, 8).map(s => (
               <button key={s.id} className={active === s.id ? 'active' : ''} onClick={() => { setActive(s.id); setView('workspace'); setMobile(false); }}>
                 <span>{s.title}</span>
               </button>
             ))}
             {!sessions.length && <p className="rail-empty">No conversations yet.</p>}
           </div>
-        </div>
-
-        <div className="rail-footer-stack">
-          <button className="new-session rail-upgrade" onClick={() => create()} disabled={creating}>New conversation <kbd>⌘J</kbd></button>
         </div>
       </aside>
       {mobile && <button className="mobile-scrim" aria-label="Close menu" onClick={() => setMobile(false)} />}
@@ -458,8 +488,12 @@ export default function Dashboard() {
             {status ? `${connectedCount} connected` : 'Checking…'}
             {voicePhase !== 'idle' ? <em>{phaseLabel(voicePhase)}</em> : <em>{bridgeLabel}</em>}
           </div>
-          <button type="button" className="top-icon-btn" aria-label="Workspace" onClick={() => setView('workspace')}><BellIcon /></button>
-          <button type="button" className="top-icon-btn" aria-label="Appearance" onClick={() => setView('appearance')}><GearIcon /></button>
+          <button type="button" className="top-icon-btn" aria-label="Workspace" onClick={() => setView('workspace')}>
+            <img src={`/taste/ico-bell${isLight ? '-light' : ''}.png`} alt="" width={16} height={16} />
+          </button>
+          <button type="button" className="top-icon-btn" aria-label="Appearance" onClick={() => setView('appearance')}>
+            <img src={`/taste/ico-settings${isLight ? '-light' : ''}.png`} alt="" width={16} height={16} />
+          </button>
         </header>
         <div className="workspace-heading">
           <div>
@@ -595,10 +629,10 @@ export default function Dashboard() {
               {connectionOrder.map(id => {
                 const connection = status?.providers?.[id];
                 const isFallback = id === 'ollama';
-                const mark = id === 'chatgpt' ? 'G' : id === 'cursor' ? '↗' : id === 'gemini' ? '◇' : '◎';
+                const markSrc = `/taste/mark-${id === 'chatgpt' ? 'chatgpt' : id}.png`;
                 return (
                   <div className={`connection-card ${connection?.connected ? '' : 'muted'}${isFallback ? ' connection-fallback' : ' connection-preferred'}`} key={id}>
-                    <span className="provider-mark">{mark}</span>
+                    <span className="provider-mark"><img src={markSrc} alt="" width={24} height={24} /></span>
                     <div>
                       <h2>{providerNames[id]}{isFallback ? ' · local fallback' : ' · preferred'}</h2>
                       <p>{connection?.connected ? (isFallback ? 'Available offline when subscription CLIs are down.' : 'Ready for new conversations.') : connection?.hint || (connection?.installed === false ? 'Not installed yet.' : 'Complete setup to connect.')}</p>
@@ -642,6 +676,7 @@ export default function Dashboard() {
 function Welcome({ onCreate }: { onCreate?: (r: Role) => void }) {
   return (
     <div className="welcome welcome-terminal">
+      <img className="welcome-art" src="/taste/empty-prompt-terminal.png" alt="" width={280} height={160} />
       <p className="welcome-prompt">$ jarvis <span>— ready</span></p>
       <h2>What's on your mind?</h2>
       <p>Think, build, or dig in. Vault on the side. Subscription CLIs first.</p>

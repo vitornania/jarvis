@@ -55,6 +55,7 @@ export function ElixirEcomPanel({
   return (
     <div className="elixir-page">
       <section className="elixir-hero">
+        <img className="elixir-hero-art" src="/taste/elixir-hero-quiet.png" alt="" width={960} height={360} />
         <p className="elixir-kicker">Beaumont Voss · Ecommerce MCP</p>
         <h2>ELIXIR ECOM</h2>
         <p>
