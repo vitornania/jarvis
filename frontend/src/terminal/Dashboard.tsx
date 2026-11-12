@@ -16,16 +16,17 @@ import { Knowledge, Skills, AppearancePanel, VoicePanel, PALETTES, type BrainSta
 
 type Provider = 'chatgpt' | 'claude' | 'cursor' | 'gemini' | 'ollama';
 const providerNames: Record<Provider, string> = { chatgpt: 'ChatGPT', claude: 'Claude', cursor: 'Cursor', gemini: 'Gemini', ollama: 'Ollama' };
-const primaryProviders: Provider[] = ['cursor', 'gemini', 'ollama'];
-type ProviderStatus = { id: Provider; name: string; model: string; installed: boolean; connected: boolean; loginCommand: string; kind?: string; priority?: boolean; hint?: string };
-type Role = 'chat' | 'research' | 'build' | 'review';
+const primaryProviders: Provider[] = ['cursor', 'gemini', 'chatgpt'];
+type ProviderStatus = { id: Provider; name: string; model: string; installed: boolean; connected: boolean; loginCommand: string; kind?: string; priority?: boolean; hint?: string; tier?: string };
+type Role = 'chat' | 'research' | 'build' | 'review' | 'god';
 type Session = {
   project?: string; memoryEnabled?: boolean; contextSources?: { id: string; title: string; kind: string }[];
   provider: Provider; id: string; title: string; role: Role; effort: string; status: string;
+  browserControl?: boolean;
   messages: { id: string; role: string; content: string }[]; activity: string; error?: string; elapsedMs?: number;
   usage?: { input_tokens: number; cached_input_tokens: number; output_tokens: number };
 };
-type Status = { providers: Record<string, ProviderStatus>; connected: boolean; provider: string; model: string; openjarvis: boolean; workspace: string; vaultPath?: string; brand?: string };
+type Status = { providers: Record<string, ProviderStatus>; connected: boolean; provider: string; model: string; openjarvis: boolean; workspace: string; vaultPath?: string; brand?: string; defaultProvider?: Provider; defaultProject?: string; memoryHealth?: { ok?: boolean; vaultWritable?: boolean; memories?: number }; godMode?: { label?: string } };
 type BrowserSpeechRecognition = {
   continuous: boolean;
   interimResults: boolean;
@@ -43,8 +44,8 @@ declare global {
   }
 }
 
-const roleNames = { chat: 'Conversation', research: 'Research', build: 'Build', review: 'Review' };
-const roleIcons = { chat: ChatBubbleIcon, research: MagnifyingGlassIcon, build: CodeIcon, review: ReaderIcon };
+const roleNames = { chat: 'Conversation', research: 'Research', build: 'Build', review: 'Review', god: 'God mode' };
+const roleIcons = { chat: ChatBubbleIcon, research: MagnifyingGlassIcon, build: CodeIcon, review: ReaderIcon, god: LightningBoltIcon };
 const paletteIds = PALETTES.map(p => p.id) as PaletteId[];
 
 async function api(path: string, method = 'GET', data?: unknown) {
@@ -79,7 +80,7 @@ export default function Dashboard() {
   const [notice, setNotice] = useState('');
   const [refreshing, setRefreshing] = useState(false);
   const [brain, setBrain] = useState<BrainState | null>(null);
-  const [project, setProject] = useState('global');
+  const [project, setProject] = useState('beaumont-voss');
   const [memoryEnabled, setMemoryEnabled] = useState(true);
   const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
   const [appearance, setAppearance] = useState<Appearance>(() => {
@@ -134,13 +135,25 @@ export default function Dashboard() {
         return i < 0 ? [d.session, ...prev] : prev.map(s => s.id === d.session.id ? d.session : s);
       });
     };
-    const refresh = () => api('status').then(setStatus).catch(() => setStatus(null));
+    const refresh = () => api('status').then((s: Status) => {
+      setStatus(s);
+      if (s.defaultProvider && primaryProviders.includes(s.defaultProvider)) setProvider(prev => (prev === 'ollama' ? s.defaultProvider! : prev));
+      if (s.defaultProject) setProject(prev => (prev === 'global' ? s.defaultProject! : prev));
+    }).catch(() => setStatus(null));
     refresh();
     const t = setInterval(refresh, 30000);
     return () => { stream.close(); clearInterval(t); };
   }, []);
 
   useEffect(() => { if (!active && sessions.length) setActive(sessions[0].id); }, [sessions, active]);
+
+  // Prefer subscription providers — never leave UI default stuck on Ollama.
+  useEffect(() => {
+    if (!status?.providers) return;
+    if (provider !== 'ollama') return;
+    const next = primaryProviders.find(id => status.providers[id]?.connected) || 'cursor';
+    setProvider(next);
+  }, [status, provider]);
 
   useEffect(() => {
     const wakeOn = localStorage.getItem('jarvis.wakeWord') !== 'off';
@@ -180,12 +193,16 @@ export default function Dashboard() {
   async function create(role: Role = 'chat') {
     if (creating) return;
     setCreating(true);
+    const nextEffort = role === 'god' ? 'high' : effort;
+    if (role === 'god') setEffort('high');
     try {
-      const s = await api('sessions', 'POST', { role, effort, provider, project, memoryEnabled, skillIds: selectedSkills });
+      const s = await api('sessions', 'POST', { role, effort: nextEffort, provider, project, memoryEnabled, skillIds: selectedSkills, browserControl: role === 'god' });
       setSessions(p => p.some(x => x.id === s.id) ? p : [s, ...p]);
       setActive(s.id);
       setView('workspace');
       setMobile(false);
+      if (s.provider === 'ollama' && role === 'god') setNotice('God mode refused Ollama — check Cursor / Gemini / ChatGPT login.');
+      else if (s.provider === 'ollama') setNotice('Session landed on Ollama fallback. Prefer Cursor / Gemini / ChatGPT when connected.');
     } catch (e) { setError(String(e)); }
     finally { setCreating(false); }
   }
@@ -211,15 +228,15 @@ export default function Dashboard() {
   ];
   const heading = {
     workspace: ['JARVIS.', 'Big ideas. Small questions. Your vault on the side.'],
-    agents: ['More minds. One desk.', 'Independent sessions. Shared visibility. You stay in control.'],
-    connections: ['Accounts, ready.', 'Cursor, Gemini, and Ollama first — free or subscription.'],
+    agents: ['More minds. One desk.', 'Specialists plus God mode — subscription CLIs, browser when you need it.'],
+    connections: ['Accounts, ready.', 'Cursor, Gemini, and ChatGPT preferred. Ollama is local fallback only.'],
     knowledge: ['One brain.', 'Beaumont Voss, Talvori, personal, and Zeta in a single vault.'],
     skills: ['Your craft, on call.', 'Ecommerce packs + COG taste — load only what you need.'],
     appearance: ['Quiet chrome.', 'Midnight, Paper, and restrained accents.'],
     voice: ['Say hey jarvis.', 'Local Whisper first. Web Speech fallback. Speak on replies.'],
   } as Record<string, [string, string]>;
 
-  const connectionOrder: Provider[] = ['cursor', 'gemini', 'ollama', 'chatgpt'];
+  const connectionOrder: Provider[] = ['cursor', 'gemini', 'chatgpt', 'ollama'];
 
   return (
     <div className="terminal-app" data-theme={appearance.theme === 'system' ? (systemDark ? 'dark' : 'light') : appearance.theme} data-palette={appearance.palette}>
@@ -233,7 +250,7 @@ export default function Dashboard() {
         <label className="provider-picker">PROVIDER FOR NEW CHATS
           <select aria-label="Provider for new chats" value={provider} onChange={e => setProvider(e.target.value as Provider)}>
             {connectionOrder.map(id => (
-              <option key={id} value={id}>{providerNames[id]}{status?.providers?.[id]?.connected ? ' · connected' : ' · setup needed'}{primaryProviders.includes(id) ? '' : ''}</option>
+              <option key={id} value={id}>{providerNames[id]}{id === 'ollama' ? ' · local fallback' : primaryProviders.includes(id) ? ' · preferred' : ''}{status?.providers?.[id]?.connected ? ' · connected' : ' · setup needed'}</option>
             ))}
           </select>
         </label>
@@ -247,8 +264,9 @@ export default function Dashboard() {
         <div className="project-controls">
           <label className="provider-picker">PROJECT FOR NEW CHATS
             <select aria-label="Project for new chats" value={project} onChange={e => setProject(e.target.value)}>
+              <option value="beaumont-voss">Beaumont Voss · primary</option>
               <option value="global">All knowledge</option>
-              {brain?.projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+              {brain?.projects.filter(p => p.id !== 'beaumont-voss').map(p => <option key={p.id} value={p.id}>{p.name}{p.id === 'market-research' ? ' (= Beaumont)' : ''}</option>)}
             </select>
           </label>
           <label className="memory-switch"><input type="checkbox" checked={memoryEnabled} onChange={e => setMemoryEnabled(e.target.checked)} />Use saved context<span>{selectedSkills.length ? `${selectedSkills.length} skills` : ''}</span></label>
@@ -331,8 +349,8 @@ export default function Dashboard() {
                   </div>
                   <div className="inspector-divider" />
                   <div className="eyebrow">MAKE IT YOUR OWN</div>
-                  <button className="inspector-action" onClick={() => setView('agents')}><CodeIcon /><span>Open the agent desk<small>Research, build, or review</small></span><ArrowTopRightIcon /></button>
-                  <button className="inspector-action" onClick={() => setView('connections')}><MixerHorizontalIcon /><span>Manage connections<small>Cursor · Gemini · Ollama</small></span><ArrowTopRightIcon /></button>
+                  <button className="inspector-action" onClick={() => setView('agents')}><CodeIcon /><span>Open the agent desk<small>Research · build · review · God mode</small></span><ArrowTopRightIcon /></button>
+                  <button className="inspector-action" onClick={() => setView('connections')}><MixerHorizontalIcon /><span>Manage connections<small>Cursor · Gemini · ChatGPT</small></span><ArrowTopRightIcon /></button>
                   <button className="inspector-action" onClick={() => setView('knowledge')}><ReaderIcon /><span>Braindump / daily brief<small>COG flows in Knowledge</small></span><ArrowTopRightIcon /></button>
                   <div className="efficiency-note"><LightningBoltIcon /><h4>Second brain, not autopilot.</h4><p>Unlimited saved sessions. You start every run. No autonomous job loops in v1.</p></div>
                 </aside>
@@ -351,15 +369,22 @@ export default function Dashboard() {
                 </label>
               </div>
               <div className="agent-grid">
-                {(['chat', 'research', 'build', 'review'] as Role[]).map((role, i) => {
+                {(['chat', 'research', 'build', 'review', 'god'] as Role[]).map((role, i) => {
                   const Icon = roleIcons[role];
+                  const blurb = {
+                    chat: 'A clear head for everyday questions, ideas, and decisions.',
+                    research: 'Follow a question. Gather evidence. Find the useful answer.',
+                    build: 'Turn a specific task into working code in this workspace.',
+                    review: 'A second pair of eyes for your plans, writing, and code.',
+                    god: 'Fast AF · browser control · high effort on Cursor / Gemini / ChatGPT subs — never Ollama by default.',
+                  }[role];
                   return (
-                    <button key={role} className="agent-card" onClick={() => create(role)} disabled={creating}>
-                      <span className="agent-index">0{i + 1}</span>
+                    <button key={role} className={`agent-card${role === 'god' ? ' agent-card-god' : ''}`} onClick={() => void create(role)} disabled={creating}>
+                      <span className="agent-index">{role === 'god' ? 'GM' : `0${i + 1}`}</span>
                       <Icon />
                       <h3>{roleNames[role]}</h3>
-                      <p>{{ chat: 'A clear head for everyday questions, ideas, and decisions.', research: 'Follow a question. Gather evidence. Find the useful answer.', build: 'Turn a specific task into working code in this workspace.', review: 'A second pair of eyes for your plans, writing, and code.' }[role]}</p>
-                      <span className="agent-start">Start session <ArrowTopRightIcon /></span>
+                      <p>{blurb}</p>
+                      <span className="agent-start">{role === 'god' ? 'Unlock God mode' : 'Start session'} <ArrowTopRightIcon /></span>
                     </button>
                   );
                 })}
@@ -383,26 +408,27 @@ export default function Dashboard() {
           ) : (
             <div className="connections">
               <div className="connection-toolbar">
-                <p>Primary: Cursor, Gemini, Ollama. ChatGPT remains available. Existing chats keep their original provider.</p>
+                <p>Preferred: Cursor, Gemini, ChatGPT (subscription CLIs). Ollama is offline/local fallback only — new chats never default to it.</p>
                 <button className="quiet-button" onClick={refreshConnections} disabled={refreshing}>{refreshing ? 'Checking…' : 'Refresh connections'}</button>
               </div>
               {connectionOrder.map(id => {
                 const connection = status?.providers?.[id];
+                const isFallback = id === 'ollama';
                 const mark = id === 'chatgpt' ? 'G' : id === 'cursor' ? '↗' : id === 'gemini' ? '◇' : '◎';
                 return (
-                  <div className={`connection-card ${connection?.connected ? '' : 'muted'}`} key={id}>
+                  <div className={`connection-card ${connection?.connected ? '' : 'muted'}${isFallback ? ' connection-fallback' : ' connection-preferred'}`} key={id}>
                     <span className="provider-mark">{mark}</span>
                     <div>
-                      <h2>{providerNames[id]}{primaryProviders.includes(id) ? ' · priority' : ''}</h2>
-                      <p>{connection?.connected ? 'Ready for new conversations.' : connection?.hint || (connection?.installed === false ? 'Not installed yet.' : 'Complete setup to connect.')}</p>
-                      <small>Model: {connection?.model || 'Loading…'} · {id === 'ollama' ? 'Local · free' : id === 'gemini' ? 'Subscription / free tier' : id === 'cursor' ? 'Cursor subscription' : 'Subscription login'}</small>
+                      <h2>{providerNames[id]}{isFallback ? ' · local fallback' : ' · preferred'}</h2>
+                      <p>{connection?.connected ? (isFallback ? 'Available offline when subscription CLIs are down.' : 'Ready for new conversations.') : connection?.hint || (connection?.installed === false ? 'Not installed yet.' : 'Complete setup to connect.')}</p>
+                      <small>Model: {connection?.model || 'Loading…'} · {isFallback ? 'Local · free · demoted' : id === 'gemini' ? 'agy / Gemini subscription' : id === 'cursor' ? 'agent login · Cursor sub' : 'codex · ChatGPT sub'}</small>
                       {!connection?.connected && <code className="login-command">{connection?.loginCommand || 'Checking…'}</code>}
                     </div>
                     <div className="connection-actions">
-                      <span className={connection?.connected ? 'connection-pill' : 'neutral-pill'}>{connection?.connected ? 'CONNECTED' : 'SETUP NEEDED'}</span>
+                      <span className={connection?.connected ? 'connection-pill' : 'neutral-pill'}>{connection?.connected ? (isFallback ? 'FALLBACK READY' : 'CONNECTED') : 'SETUP NEEDED'}</span>
                       {connection?.connected
-                        ? <button className="quiet-button" onClick={() => { setProvider(id); setNotice(`${providerNames[id]} selected for new conversations.`); }}>Use for new chats</button>
-                        : <button className="quiet-button" onClick={() => login(id)}>Connect <ArrowTopRightIcon /></button>}
+                        ? <button className="quiet-button" onClick={() => { setProvider(id); setNotice(isFallback ? 'Ollama selected as temporary local fallback.' : `${providerNames[id]} selected for new conversations.`); }}>Use for new chats</button>
+                        : <button className="quiet-button" onClick={() => login(id)}>{isFallback ? 'Start local' : 'Connect'} <ArrowTopRightIcon /></button>}
                     </div>
                   </div>
                 );
@@ -411,12 +437,13 @@ export default function Dashboard() {
                 <h3>JARVIS foundation</h3>
                 <p>Vault: <code>{status?.vaultPath || brain?.vaultPath || '~/Desktop/JARVIS/vault'}</code></p>
                 <p>Workspace: <code>{status?.workspace || 'Loading…'}</code></p>
+                <p>Default provider: <code>{status?.defaultProvider || 'cursor'}</code> · Default project: <code>{status?.defaultProject || 'beaumont-voss'}</code></p>
                 <h3>How usage stays focused</h3>
                 <ul>
                   <li>Unlimited saved sessions — no artificial session cap.</li>
-                  <li>Up to four simultaneous runs; you start every one.</li>
+                  <li>God mode allows up to {status?.godMode ? '6' : '4'} parallel runs on subscription CLIs.</li>
                   <li>No autonomous job runner in v1.</li>
-                  <li>No paid API-key fallback; free/local and subscription only.</li>
+                  <li>No paid API-key fallback — Cursor / Gemini / ChatGPT subscriptions only; Ollama offline.</li>
                 </ul>
               </div>
             </div>
@@ -447,6 +474,7 @@ function Welcome({ onCreate }: { onCreate?: (r: Role) => void }) {
           <button onClick={() => onCreate('chat')}><ChatBubbleIcon />Think something through<ArrowTopRightIcon /></button>
           <button onClick={() => onCreate('build')}><CodeIcon />Build something useful<ArrowTopRightIcon /></button>
           <button onClick={() => onCreate('research')}><MagnifyingGlassIcon />Explore a question<ArrowTopRightIcon /></button>
+          <button className="god-suggestion" onClick={() => onCreate('god')}><LightningBoltIcon />God mode — fast + browser<ArrowTopRightIcon /></button>
         </div>
       )}
     </div>
@@ -627,7 +655,7 @@ function Chat({ session: s, connected, onError, wakeToken = 0, wakeArmed = false
           <label htmlFor={`prompt-${s.id}`} className="sr-only">Message {s.title}</label>
           <textarea ref={textareaRef} id={`prompt-${s.id}`} placeholder="Ask, explore, make something…" value={draft} onChange={e => setDraft(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); void send(); } }} />
           <div className="composer-bottom">
-            <span><span className="prompt-mark">&gt;_</span> {roleNames[s.role]} <span className="composer-mode">{s.role === 'build' ? 'Workspace edits' : 'Read-only tools'}</span></span>
+            <span><span className="prompt-mark">&gt;_</span> {roleNames[s.role]} <span className="composer-mode">{s.role === 'god' ? 'Browser · high effort · sub CLIs' : s.role === 'build' ? 'Workspace edits' : 'Read-only tools'}{s.browserControl ? ' · browser on' : ''}</span></span>
             <div className="composer-actions">
               {voiceIn && (
                 <button className={`mic-button ${listening ? 'recording' : ''}`} aria-label={listening ? 'Stop listening' : 'Dictate with microphone'} title={listening ? `Stop · ${micMode}` : 'Mic · Whisper preferred, Web Speech fallback'} onClick={() => { void toggleMic(); }} disabled={running || sending}>

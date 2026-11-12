@@ -1,14 +1,26 @@
 import path from 'node:path';
 export const PROVIDERS = {
-  chatgpt: {name:'ChatGPT',cli:'codex',model:'gpt-6-sol',login:['login'],status:['login','status']},
-  claude: {name:'Claude',cli:'claude',model:'sonnet',login:['auth','login','--claudeai'],status:['auth','status']},
-  cursor: {name:'Cursor',cli:'agent',model:'auto',login:['login'],status:['status','--format','json']},
+  chatgpt: {name:'ChatGPT',cli:'codex',model:'gpt-6-sol',login:['login'],status:['login','status'],kind:'subscription',tier:'preferred'},
+  claude: {name:'Claude',cli:'claude',model:'sonnet',login:['auth','login','--claudeai'],status:['auth','status'],kind:'subscription',tier:'hidden'},
+  cursor: {name:'Cursor',cli:'agent',model:'auto',login:['login'],status:['status','--format','json'],kind:'subscription',tier:'preferred'},
   // Free Google account via Antigravity CLI (`agy`). Legacy `gemini` binary still probed.
-  gemini: {name:'Gemini',cli:'agy',model:'gemini',login:[''],status:['--version'],kind:'subscription'},
-  ollama: {name:'Ollama',cli:'ollama',model:'local',login:['list'],status:['list'],kind:'local'},
+  gemini: {name:'Gemini',cli:'agy',model:'gemini',login:[''],status:['--version'],kind:'subscription',tier:'preferred'},
+  ollama: {name:'Ollama',cli:'ollama',model:'local',login:['list'],status:['list'],kind:'local',tier:'fallback'},
 };
-export const PRIMARY_PROVIDERS = ['cursor','gemini','ollama'];
+/** Preferred subscription providers for new chats (never default to Ollama). */
+export const PRIMARY_PROVIDERS = ['cursor','gemini','chatgpt'];
+export const FALLBACK_PROVIDERS = ['ollama'];
 export const CHAT_PROVIDERS = ['cursor','chatgpt','gemini','ollama'];
+export const GOD_MODE = {
+  id: 'god',
+  label: 'God mode',
+  browserControl: true,
+  providerPrefer: ['cursor','gemini','chatgpt'],
+  maxParallel: 6,
+  streaming: true,
+  effort: 'high',
+  roleBoost: 'You are JARVIS God mode: fast, decisive, tool-capable. Prefer parallel investigation. Use browser/computer-use tools when the task needs live web or UI verification. Stay on subscription CLIs — never invent paid API keys. Beaumont Voss is the primary project unless told otherwise.',
+};
 export function cleanEnvironment(source) {
   const env={...source};
   for(const key of Object.keys(env)) if(/^(OPENAI_API_KEY|CODEX_API_KEY|ANTHROPIC_API_KEY|ANTHROPIC_AUTH_TOKEN|CLAUDE_CODE_OAUTH_TOKEN|CURSOR_API_KEY|CURSOR_API_KEY_FILE|CURSOR_SERVICE_ACCOUNT_KEY|CURSOR_AUTH_TOKEN|OPENAI_BASE_URL|ANTHROPIC_BASE_URL|CLAUDE_CODE_USE_BEDROCK|CLAUDE_CODE_USE_VERTEX|CLAUDE_CODE_USE_FOUNDRY|GEMINI_API_KEY|GOOGLE_API_KEY)$/.test(key))delete env[key];
@@ -28,26 +40,40 @@ export function authenticated(id,stdout,stderr='') {
   }
   try{const d=JSON.parse(stdout);return id==='claude'?d.loggedIn===true&&d.authMethod==='claude.ai'&&d.apiProvider==='firstParty':d.isAuthenticated===true&&d.hasAccessToken===true&&d.hasRefreshToken===true&&!/unable|expired|invalid/i.test(d.message||'');}catch{return false;}
 }
+export function resolveProjectId(raw, aliases={}, defaultProject='beaumont-voss'){
+  if(!raw||raw==='global'||raw==='all')return raw||'global';
+  return aliases[raw]||aliases[String(raw).toLowerCase()]||raw||defaultProject;
+}
+export function pickDefaultProvider(providers){
+  for(const id of PRIMARY_PROVIDERS){
+    if(providers?.[id]?.connected)return id;
+  }
+  return 'cursor';
+}
 export function invocation(s,prompt,instruction){
  const provider=s.provider||'chatgpt';const p=PROVIDERS[provider];
  if(!p)throw new Error('Unknown provider');
  const text=(s.threadId?'':instruction+'\n\n')+prompt;
  if(provider==='chatgpt'){
-  const args=['exec','--ignore-user-config','--json','--skip-git-repo-check','-c','model_provider="openai"','-c','forced_login_method="chatgpt"','-c',`model_reasoning_effort="${s.effort}"`,'-c',`sandbox_mode="${s.role==='build'?'workspace-write':'read-only'}"`,'-c','approval_policy="never"','-m',p.model];
+  const args=['exec','--ignore-user-config','--json','--skip-git-repo-check','-c','model_provider="openai"','-c','forced_login_method="chatgpt"','-c',`model_reasoning_effort="${s.effort}"`,'-c',`sandbox_mode="${s.role==='build'||s.role==='god'?'workspace-write':'read-only'}"`,'-c','approval_policy="never"','-m',p.model];
   if(s.threadId)args.push('resume',s.threadId,'-');else args.push('-');return {args,stdin:text};
  }
  if(provider==='claude'){
-  const args=['-p','--output-format','stream-json','--verbose','--model',p.model,'--effort',s.effort,'--setting-sources','','--strict-mcp-config','--permission-mode',s.role==='build'?'acceptEdits':'dontAsk','--permission-prompts','none','--tools',s.role==='chat'?'':s.role==='build'?'Read,Glob,Grep,Edit,Write':'Read,Glob,Grep,WebSearch,WebFetch'];
+  const args=['-p','--output-format','stream-json','--verbose','--model',p.model,'--effort',s.effort,'--setting-sources','','--strict-mcp-config','--permission-mode',s.role==='build'||s.role==='god'?'acceptEdits':'dontAsk','--permission-prompts','none','--tools',s.role==='chat'?'':s.role==='god'||s.role==='build'?'Read,Glob,Grep,Edit,Write,WebSearch,WebFetch,Bash':'Read,Glob,Grep,WebSearch,WebFetch'];
   if(s.threadId)args.push('--resume',s.threadId);return {args,stdin:text};
  }
  if(provider==='gemini'){
   const args=['-p',text,'--output-format','stream-json','--print-timeout','14m','--disable-slash-commands'];
-  if(s.role!=='build')args.push('--mode','plan');
+  if(s.role==='god')args.push('--dangerously-skip-permissions');
+  else if(s.role!=='build')args.push('--mode','plan');
   if(s.threadId)args.push('--conversation',s.threadId);
   return {args,stdin:''};
  }
+ // Cursor agent
  const args=['--print','--output-format','stream-json','--model','auto','--sandbox','enabled','--trust'];
- if(s.role!=='build')args.push('--mode','ask');if(s.threadId)args.push('--resume',s.threadId);
+ if(s.role==='god'){/* ask mode off — fuller agency via subscription */}
+ else if(s.role!=='build')args.push('--mode','ask');
+ if(s.threadId)args.push('--resume',s.threadId);
  args.push('--',text);return {args,stdin:''};
 }
 export function normalizeEvent(provider,e){

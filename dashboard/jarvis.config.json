@@ -2,8 +2,31 @@
   "brand": "JARVIS",
   "vaultPath": "/Users/vitornania/Desktop/JARVIS/vault",
   "homePath": "/Users/vitornania/Desktop/JARVIS",
-  "providersFirst": ["cursor", "gemini", "ollama"],
+  "providersFirst": [
+    "cursor",
+    "gemini",
+    "chatgpt"
+  ],
+  "providersFallback": [
+    "ollama"
+  ],
+  "godMode": {
+    "browserControl": true,
+    "providerPrefer": ["cursor", "gemini", "chatgpt"],
+    "maxParallel": 6,
+    "streaming": true,
+    "effort": "high"
+  },
   "whisperBin": "whisper-cli",
   "whisperModel": "/Users/vitornania/Desktop/JARVIS/models/whisper/ggml-tiny.bin",
-  "wakeWord": "hey jarvis"
+  "wakeWord": "hey jarvis",
+  "defaultProject": "beaumont-voss",
+  "projectAliases": {
+    "beaumont": "beaumont-voss",
+    "beaumont-voss": "beaumont-voss",
+    "market-research": "beaumont-voss",
+    "Market Research": "beaumont-voss",
+    "bv": "beaumont-voss"
+  },
+  "autoHarvest": true
 }

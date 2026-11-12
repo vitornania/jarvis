@@ -1,6 +1,23 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {authenticated,invocation,normalizeEvent,cleanEnvironment} from './providers.mjs';
+import {authenticated,invocation,normalizeEvent,cleanEnvironment,pickDefaultProvider,PRIMARY_PROVIDERS,GOD_MODE,FALLBACK_PROVIDERS} from './providers.mjs';
+test('new chats prefer subscription providers over Ollama',()=>{
+  assert.deepEqual(PRIMARY_PROVIDERS,['cursor','gemini','chatgpt']);
+  assert.deepEqual(FALLBACK_PROVIDERS,['ollama']);
+  assert.equal(pickDefaultProvider({ollama:{connected:true},cursor:{connected:false},gemini:{connected:false},chatgpt:{connected:false}}),'cursor');
+  assert.equal(pickDefaultProvider({ollama:{connected:true},cursor:{connected:false},gemini:{connected:true},chatgpt:{connected:false}}),'gemini');
+  assert.equal(pickDefaultProvider({ollama:{connected:true},cursor:{connected:true},gemini:{connected:true},chatgpt:{connected:true}}),'cursor');
+});
+test('God mode stays on subscription CLIs with browser + high parallel',()=>{
+  assert.equal(GOD_MODE.browserControl,true);
+  assert.equal(GOD_MODE.streaming,true);
+  assert.equal(GOD_MODE.effort,'high');
+  assert.ok(GOD_MODE.maxParallel>=6);
+  assert.deepEqual(GOD_MODE.providerPrefer,['cursor','gemini','chatgpt']);
+  assert.ok(!GOD_MODE.providerPrefer.includes('ollama'));
+  const god=invocation({provider:'cursor',role:'god',effort:'high'},'go','instructions');
+  assert.ok(!god.args.includes('ask'));
+});
 test('only account authentication is accepted',()=>{
  assert.equal(authenticated('chatgpt','','Logged in using ChatGPT'),true);
  assert.equal(authenticated('chatgpt','Logged in using an API key'),false);

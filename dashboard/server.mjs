@@ -7,7 +7,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
 import { Brain } from './brain.mjs';
-import { PROVIDERS, CHAT_PROVIDERS, PRIMARY_PROVIDERS, cleanEnvironment, executable, authenticated, invocation, normalizeEvent } from './providers.mjs';
+import { PROVIDERS, CHAT_PROVIDERS, PRIMARY_PROVIDERS, FALLBACK_PROVIDERS, GOD_MODE, cleanEnvironment, executable, authenticated, invocation, normalizeEvent, pickDefaultProvider, resolveProjectId } from './providers.mjs';
 const exec = promisify(execFile);
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const home = path.resolve(root, '..');
@@ -15,7 +15,7 @@ const dataDir = path.join(root, 'dashboard', '.data');
 const staticDir = path.join(root, 'src/openjarvis/server/static');
 const port = Number(process.env.TERMINAL_PORT || 4318);
 const env = cleanEnvironment({...process.env, PATH:`${process.env.HOME}/.local/bin:/opt/homebrew/bin:/usr/local/bin:${process.env.PATH||''}`});
-let jarvisConfig={vaultPath:path.resolve(home,'vault'),brand:'JARVIS',whisperModel:path.resolve(home,'models/whisper/ggml-tiny.bin'),whisperBin:'whisper-cli'};
+let jarvisConfig={vaultPath:path.resolve(home,'vault'),brand:'JARVIS',whisperModel:path.resolve(home,'models/whisper/ggml-tiny.bin'),whisperBin:'whisper-cli',defaultProject:'beaumont-voss',autoHarvest:true,projectAliases:{}};
 try{jarvisConfig={...jarvisConfig,...JSON.parse(await readFile(path.join(root,'dashboard','jarvis.config.json'),'utf8'))};}catch{}
 await mkdir(dataDir, { recursive: true, mode: 0o700 });
 await mkdir(path.join(dataDir,'audio'), { recursive: true, mode: 0o700 });
@@ -23,7 +23,7 @@ let sessions = [];
 try { sessions = JSON.parse(await readFile(path.join(dataDir, 'sessions.json'), 'utf8')); } catch {}
 for (const s of sessions) s.provider ||= 'chatgpt';
 for (const s of sessions) if (s.status === 'running') { s.status = 'interrupted'; s.activity = 'Server restarted. Send a message to continue.'; }
-const brain=new Brain(root,{vaultPath:jarvisConfig.vaultPath});
+const brain=new Brain(root,{vaultPath:jarvisConfig.vaultPath,projectAliases:jarvisConfig.projectAliases||{},defaultProject:jarvisConfig.defaultProject||'beaumont-voss',autoHarvest:jarvisConfig.autoHarvest!==false});
 await brain.init();
 const jobs = new Map(), listeners = new Set();
 let persistTimer;
@@ -76,10 +76,10 @@ async function providerStatus(id) {
       const data=await r.json();
       const models=(data.models||[]).map(m=>m.name);
       const prefer=models.find(m=>/llama3\.2|phi|gemma|qwen|tinyllama/i.test(m))||models[0]||'local';
-      return {id,name:p.name,model:prefer,installed:true,connected:models.length>0,loginCommand:models.length?'ollama serve':`ollama pull llama3.2:1b`,kind:'local',models,priority:PRIMARY_PROVIDERS.includes(id)};
+      return {id,name:p.name,model:prefer,installed:true,connected:models.length>0,loginCommand:models.length?'ollama serve':`ollama pull llama3.2:1b`,kind:'local',tier:'fallback',models,priority:false,hint:'Local fallback only — not used for new chats by default'};
     }catch{
-      try{await exec(executable(id),['--version'],{env,timeout:4000});return {id,name:p.name,model:'local',installed:true,connected:false,loginCommand:'brew services start ollama && ollama pull llama3.2:1b',kind:'local',priority:true};}
-      catch(e){return {id,name:p.name,model:'local',installed:e.code!=='ENOENT',connected:false,loginCommand:'Install Ollama from ollama.com (free)',kind:'local',priority:true};}
+      try{await exec(executable(id),['--version'],{env,timeout:4000});return {id,name:p.name,model:'local',installed:true,connected:false,loginCommand:'brew services start ollama && ollama pull llama3.2:1b',kind:'local',tier:'fallback',priority:false,hint:'Local fallback'};}
+      catch(e){return {id,name:p.name,model:'local',installed:e.code!=='ENOENT',connected:false,loginCommand:'Install Ollama from ollama.com (free)',kind:'local',tier:'fallback',priority:false};}
     }
   }
   if(id==='gemini'){
@@ -96,23 +96,45 @@ async function providerStatus(id) {
       return {id,name:p.name,model:p.model,installed:false,connected:false,loginCommand:'brew install --cask antigravity-cli',kind:'subscription',priority:true,hint:'Install free Antigravity CLI (agy), then Google login'};
     }
   }
-  try {const r=await exec(executable(id),p.status,{env,timeout:10000});return {id,name:p.name,model:p.model,installed:true,connected:authenticated(id,r.stdout,r.stderr),loginCommand:[p.cli,...p.login].filter(Boolean).join(' '),priority:PRIMARY_PROVIDERS.includes(id)};}
-  catch(e){return {id,name:p.name,model:p.model,installed:e.code!=='ENOENT',connected:false,loginCommand:[p.cli,...p.login].filter(Boolean).join(' '),priority:PRIMARY_PROVIDERS.includes(id)};}
+  try {const r=await exec(executable(id),p.status,{env,timeout:10000});return {id,name:p.name,model:p.model,installed:true,connected:authenticated(id,r.stdout,r.stderr),loginCommand:[p.cli,...p.login].filter(Boolean).join(' '),kind:p.kind||'subscription',tier:p.tier||'preferred',priority:PRIMARY_PROVIDERS.includes(id)};}
+  catch(e){return {id,name:p.name,model:p.model,installed:e.code!=='ENOENT',connected:false,loginCommand:[p.cli,...p.login].filter(Boolean).join(' '),kind:p.kind||'subscription',tier:p.tier||'preferred',priority:PRIMARY_PROVIDERS.includes(id)};}
 }
 async function status() {
- const list=await Promise.all(['cursor','gemini','ollama','chatgpt'].map(providerStatus));
+ const list=await Promise.all(['cursor','gemini','chatgpt','ollama'].map(providerStatus));
  const providers=Object.fromEntries(list.map(p=>[p.id,p]));
- const primary=PRIMARY_PROVIDERS.find(id=>providers[id]?.connected)||'cursor';
+ const primary=pickDefaultProvider(providers);
  const whisper=whisperReady();
- return {connected:!!providers[primary]?.connected,provider:PROVIDERS[primary].name,model:providers[primary]?.model||PROVIDERS[primary].model,providers,apiBilling:false,maxConcurrent:4,running:jobs.size,openjarvis:existsSync(path.join(root,'.venv/bin/jarvis')),workspace:root,vaultPath:jarvisConfig.vaultPath,brand:jarvisConfig.brand||'JARVIS',primaryProviders:PRIMARY_PROVIDERS,speech:{whisper,webSpeechFallback:true,wakeWord:'hey jarvis'}};
+ const vaultOk=!!(jarvisConfig.vaultPath&&existsSync(jarvisConfig.vaultPath));
+ return {
+  connected:!!providers[primary]?.connected,
+  provider:PROVIDERS[primary].name,
+  model:providers[primary]?.model||PROVIDERS[primary].model,
+  defaultProvider:primary,
+  providers,
+  apiBilling:false,
+  maxConcurrent:GOD_MODE.maxParallel,
+  running:jobs.size,
+  openjarvis:existsSync(path.join(root,'.venv/bin/jarvis')),
+  workspace:root,
+  vaultPath:jarvisConfig.vaultPath,
+  vaultOk,
+  brand:jarvisConfig.brand||'JARVIS',
+  primaryProviders:PRIMARY_PROVIDERS,
+  fallbackProviders:FALLBACK_PROVIDERS,
+  defaultProject:jarvisConfig.defaultProject||'beaumont-voss',
+  godMode:GOD_MODE,
+  memoryHealth:brain.memoryHealth,
+  speech:{whisper,webSpeechFallback:true,wakeWord:jarvisConfig.wakeWord||'hey jarvis'},
+ };
 }
 function json(res, code, body) { res.writeHead(code, {'Content-Type':'application/json','Cache-Control':'no-store'}); res.end(JSON.stringify(body)); }
 async function body(req) { let raw=''; for await (const chunk of req) { raw+=chunk; if(raw.length>29_000_000) throw new Error('Message is too large'); } return JSON.parse(raw||'{}'); }
 const roles = {
-  chat:'You are a thoughtful conversational assistant. Answer directly and concisely. Do not inspect files or use tools unless the user specifically asks. Avoid unnecessary research and repeated checks.',
-  research:'You are a research assistant. Investigate the specific question, distinguish evidence from uncertainty, and give a clear answer. Use tools only when useful; avoid redundant searches.',
+  chat:'You are a thoughtful conversational assistant. Answer directly and concisely. Do not inspect files or use tools unless the user specifically asks. Avoid unnecessary research and repeated checks. Beaumont Voss is the primary project unless told otherwise.',
+  research:'You are a research assistant. Investigate the specific question, distinguish evidence from uncertainty, and give a clear answer. Use tools only when useful; avoid redundant searches. Prefer Beaumont / market-research context when relevant.',
   build:'You are a practical coding assistant working in the JARVIS workspace. Complete the requested change and verify it. Keep actions scoped and summaries concise.',
-  review:'You are a critical reviewer. Find the most consequential flaws, explain the evidence, and recommend concrete fixes. Do not change files unless explicitly requested.'
+  review:'You are a critical reviewer. Find the most consequential flaws, explain the evidence, and recommend concrete fixes. Do not change files unless explicitly requested.',
+  god:GOD_MODE.roleBoost,
 };
 async function runOllama(s, contextualPrompt, answer) {
   const tags=await fetch('http://127.0.0.1:11434/api/tags',{signal:AbortSignal.timeout(2000)});
@@ -130,17 +152,25 @@ async function runOllama(s, contextualPrompt, answer) {
 }
 async function run(s, prompt, res) {
   if (jobs.has(s.id)) return json(res,409,{error:'This session is already running.'});
-  if (jobs.size>=4) return json(res,429,{error:'Four sessions are running. Stop one or wait for it to finish.'});
+  const cap=s.role==='god'?GOD_MODE.maxParallel:4;
+  if (jobs.size>=cap) return json(res,429,{error:`${cap} sessions are running. Stop one or wait for it to finish.`});
   // Reserve a slot before checking auth so concurrent requests cannot exceed the cap.
   jobs.set(s.id, {pending:true});
+  // God mode never routes to Ollama — stick to subscription CLIs.
+  if(s.role==='god'&&s.provider==='ollama'){
+    const list=await Promise.all(PRIMARY_PROVIDERS.map(providerStatus));
+    const next=list.find(p=>p.connected);
+    if(next)s.provider=next.id;
+  }
   const connection=await providerStatus(s.provider);
-  if (!connection.connected) { jobs.delete(s.id); return json(res,401,{error:`Connect ${connection.name}: ${connection.loginCommand}. Free/subscription only — no paid API-key fallback.`}); }
+  if (!connection.connected) { jobs.delete(s.id); return json(res,401,{error:`Connect ${connection.name}: ${connection.loginCommand}. Subscription CLIs only — no paid API-key fallback.`}); }
   let context;
   try { if(s.memoryEnabled!==false)await brain.capture(prompt,s); context=await brain.context(prompt,s); } catch(e){jobs.delete(s.id);return json(res,500,{error:`Memory could not be loaded: ${e.message}`});}
   s.contextSources=context.sources;
+  s.browserControl=s.role==='god'?true:!!s.browserControl;
   s.messages.push({id:randomUUID(),role:'user',content:prompt});
   if(s.messages.length===1) s.title=prompt.slice(0,48);
-  s.status='running'; s.error=''; s.activity=`Starting ${PROVIDERS[s.provider].name}`; s.startedAt=Date.now();
+  s.status='running'; s.error=''; s.activity=`Starting ${PROVIDERS[s.provider].name}${s.role==='god'?' · God mode':''}`; s.startedAt=Date.now();
   const answer={id:randomUUID(),role:'assistant',content:''}; s.messages.push(answer);
   const contextualPrompt=context.text?`${context.text}\n\nCURRENT USER MESSAGE:\n${prompt}`:prompt;
   if(s.provider==='ollama'){
@@ -155,7 +185,10 @@ async function run(s, prompt, res) {
     finally{jobs.delete(s.id);}
     return;
   }
-  const call=invocation(s,contextualPrompt,roles[s.role]);
+  const roleText=s.role==='god'
+    ? `${roles.god}\n\nFLAGS: browserControl=true · streaming=on · maxParallel=${GOD_MODE.maxParallel} · providerPrefer=${GOD_MODE.providerPrefer.join(',')}. Use browser/computer-use/Playwright/CDP tools when the task needs live web or UI checks. Prefer parallel tool calls. Stay on Cursor agent / Gemini agy / ChatGPT codex — never invent paid API keys or fall back to Ollama in God mode.`
+    : roles[s.role];
+  const call=invocation(s,contextualPrompt,roleText);
   const child=spawn(executable(s.provider),call.args,{cwd:root,env,stdio:['pipe','pipe','pipe'],detached:true});
   jobs.set(s.id,child);
   let buffer='', stderr='', lastPublish=0, completed=false;
@@ -311,7 +344,20 @@ const server=http.createServer(async(req,res)=>{
       const heartbeat=setInterval(()=>res.write(': heartbeat\n\n'),15000);req.on('close',()=>{clearInterval(heartbeat);listeners.delete(res);});return;
     }
     if(p==='/terminal-api/sessions'&&req.method==='POST') {
-      const b=await body(req);if(b.provider&&!CHAT_PROVIDERS.includes(b.provider))return json(res,400,{error:'Unknown provider'});const s={project:typeof b.project==='string'?b.project:'global',memoryEnabled:b.memoryEnabled!==false,skillIds:Array.isArray(b.skillIds)?b.skillIds.filter(id=>brain.skills.some(k=>k.id===id)).slice(0,3):[],provider:b.provider||'cursor',id:randomUUID(),title:'New conversation',role:Object.hasOwn(roles,b.role)?b.role:'chat',effort:['low','medium','high'].includes(b.effort)?b.effort:'low',status:'idle',messages:[],createdAt:Date.now(),activity:'Ready when you are'};
+      const b=await body(req);
+      if(b.provider&&!CHAT_PROVIDERS.includes(b.provider))return json(res,400,{error:'Unknown provider'});
+      const role=Object.hasOwn(roles,b.role)?b.role:'chat';
+      let provider=b.provider||'cursor';
+      // Never silently default new chats to Ollama — subscription CLIs first.
+      if(!b.provider||provider==='ollama'&&role==='god'){
+        const snap=await status();
+        provider=pickDefaultProvider(snap.providers);
+      }
+      if(provider==='ollama'&&!b.provider){provider='cursor';}
+      const projectRaw=typeof b.project==='string'?b.project:(jarvisConfig.defaultProject||'beaumont-voss');
+      const project=resolveProjectId(projectRaw,jarvisConfig.projectAliases||{},jarvisConfig.defaultProject||'beaumont-voss');
+      const effort=role==='god'?'high':(['low','medium','high'].includes(b.effort)?b.effort:'low');
+      const s={project,memoryEnabled:b.memoryEnabled!==false,skillIds:Array.isArray(b.skillIds)?b.skillIds.filter(id=>brain.skills.some(k=>k.id===id)).slice(0,3):[],provider,id:randomUUID(),title:role==='god'?'God mode':'New conversation',role,effort,browserControl:role==='god'||!!b.browserControl,status:'idle',messages:[],createdAt:Date.now(),activity:role==='god'?'God mode ready — subscription CLIs + browser':'Ready when you are'};
       sessions.unshift(s);publish(s);return json(res,201,s);
     }
     const m=p.match(/^\/terminal-api\/sessions\/([a-f0-9-]+)(?:\/(message|stop))?$/);
