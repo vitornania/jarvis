@@ -1,21 +1,25 @@
 # Vision UI reference
 
-Creative Tim Vision UI Dashboard Pro React is a **visual reference only**.
-JARVIS does not claim Creative Tim license ownership.
+Creative Tim Vision UI Dashboard is the **design** — JARVIS only changes text/content.
 
 ## Goclone
 
-Tool: https://github.com/goclone-dev/goclone
+https://github.com/goclone-dev/goclone
 
 ```bash
 cd ~/Desktop/JARVIS/design-refs/vision-ui
 goclone https://demos.creative-tim.com/vision-ui-dashboard-pro-react/
 ```
 
-Mirror: `~/Desktop/JARVIS/design-refs/vision-ui/demos.creative-tim.com/`
-Tokens: `vision-ui-dashboard-react/src/assets/theme/base/colors.js`
-System notes: `~/Desktop/JARVIS/design-refs/vision-ui/VISUAL-SYSTEM.md`
+Assets used in product (MIT free theme images):
+- `/vision/body-background.png`
+- `/vision/sidenav-card-background.png`
 
-## Product mapping
+## Label map
 
-Vision chrome (glass sidenav, cover gradient, brand `#0075ff`, mini-stats, Plus Jakarta Display) → JARVIS Workspace / Agent desk / ELIXIR ECOM / Knowledge / Connections / Voice only. No Creative Tim demo copy.
+Dashboard→Workspace · Tables→Agent desk · Billing→ELIXIR ECOM · RTL→Skills · Profile→Connections · Sign In→Knowledge · Sign Up→Voice · Upgrade to PRO→New conversation
+
+## Create workspace / project
+
+- UI: sidenav → Workspaces → **New workspace** / **New project**
+- API: `POST /terminal-api/brain/workspaces`, `POST /terminal-api/brain/projects`
