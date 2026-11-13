@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { ArrowTopRightIcon, Cross2Icon, MagnifyingGlassIcon, PlusIcon, ReaderIcon, DownloadIcon, CheckIcon, SunIcon, MoonIcon, DesktopIcon, Pencil1Icon } from '@radix-ui/react-icons';
+import { ArrowTopRightIcon, Cross2Icon, MagnifyingGlassIcon, PlusIcon, DownloadIcon, CheckIcon, SunIcon, MoonIcon, DesktopIcon, Pencil1Icon } from '@radix-ui/react-icons';
 
 export type Memory = { id: string; title: string; content: string; category: string; project: string; pinned: boolean; source: string; updatedAt: string };
 export type Source = { id: string; name: string; project: string; path: string; bytes: number; indexed: boolean; kind: string; updatedAt: string; text?: string; excerpt?: string };
@@ -188,7 +188,14 @@ export function Knowledge({ brain, refresh, project, onError }: { brain: BrainSt
           {files.slice(0, 150).map(f => (
             <div className="source-row" key={f.id}>
               <button onClick={() => request('brain/documents/' + f.id).then(setPreview).catch(e => onError(String(e)))}>
-                <span className="file-icon"><ReaderIcon /></span>
+                <span className="file-icon" aria-hidden="true">
+                  <img
+                    src={f.kind === 'folder' ? '/taste/ico-folder.png' : '/taste/ico-file.png'}
+                    alt=""
+                    width={16}
+                    height={16}
+                  />
+                </span>
                 <span>{f.name}<small>{f.kind === 'conversation' ? 'Conversation archive' : `${Math.ceil((f.bytes || 0) / 1024)} KB`}</small></span>
               </button>
               <span className="source-project">{f.project.replace(/-/g, ' ')}</span>
@@ -198,7 +205,7 @@ export function Knowledge({ brain, refresh, project, onError }: { brain: BrainSt
           ))}
           {!files.length && (
             <div className="empty-panel">
-              <ReaderIcon />
+              <img className="empty-art" src="/taste/empty-knowledge.png" alt="" width={280} height={160} />
               <h3>Your next useful reference belongs here.</h3>
               <p>Import notes into the unified vault, or open the same folder in Obsidian. Browse works offline without a provider login.</p>
               <button className="quiet-button" onClick={() => upload.current?.click()}>Import your first source</button>
@@ -219,7 +226,13 @@ export function Knowledge({ brain, refresh, project, onError }: { brain: BrainSt
               <small>{m.source}</small>
             </article>
           ))}
-          {!memories.length && <div className="empty-panel"><h3>Keep the useful details.</h3><p>Save a preference or decision here, or start a chat message with “Remember that…” to save it automatically.</p></div>}
+          {!memories.length && (
+            <div className="empty-panel">
+              <img className="empty-art" src="/taste/ico-memory.png" alt="" width={48} height={48} />
+              <h3>Keep the useful details.</h3>
+              <p>Save a preference or decision here, or start a chat message with “Remember that…” to save it automatically.</p>
+            </div>
+          )}
         </div>
       )}
       {preview && (
@@ -251,7 +264,14 @@ export function Skills({ brain, selected, setSelected }: { brain: BrainState | n
       <div className="skill-list">
         {skills.slice(0, 80).map(s => (
           <button className={`skill-row ${selected.includes(s.id) ? 'chosen' : ''}`} key={s.id} disabled={selected.length >= 3 && !selected.includes(s.id)} onClick={() => setSelected(selected.includes(s.id) ? selected.filter(id => id !== s.id) : [...selected, s.id])}>
-            <span className="skill-check">{selected.includes(s.id) ? <CheckIcon /> : <PlusIcon />}</span>
+            <span className="skill-check" aria-hidden="true">
+              <img
+                src={selected.includes(s.id) ? '/taste/ico-check-on.png' : '/taste/ico-check-off.png'}
+                alt=""
+                width={16}
+                height={16}
+              />
+            </span>
             <span><strong>{s.name.replace(/-/g, ' ')}</strong><small>{s.description}</small></span>
             <span className="skill-type">{s.plugin ? 'Plugin tools required' : 'Local skill'}</span>
           </button>
@@ -281,8 +301,12 @@ export function AppearancePanel({ value, onChange, onCursor }: { value: Appearan
       <div className="theme-options">
         {themes.map(t => (
           <button className={`theme-option ${value.theme === t.id ? 'selected' : ''}`} key={t.id} onClick={() => onChange({ ...value, theme: t.id })}>
-            <div className={`theme-preview preview-${t.id}`}><div /><div><span /><span /><span /></div></div>
-            <div className="theme-caption"><t.icon /><strong>{t.name}</strong>{value.theme === t.id && <CheckIcon />}</div>
+            <div className={`theme-preview preview-${t.id}`} aria-hidden="true" />
+            <div className="theme-caption">
+              <t.icon />
+              <strong>{t.name}</strong>
+              {value.theme === t.id && <img src="/taste/ico-check-on.png" alt="" width={14} height={14} />}
+            </div>
             <p>{t.desc}</p>
           </button>
         ))}

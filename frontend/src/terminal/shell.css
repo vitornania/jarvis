@@ -99,8 +99,8 @@
 .terminal-app[data-palette="rose"]{--lime:#e7adbe;--on-accent:#2c1820}
 .terminal-app[data-theme="light"][data-palette="rose"]{--lime:#99465e;--on-accent:#fff}
 
-/* Kill Vision / AI tells */
-.workspace-avatar,.connection-dot,.session-dot,.metric-dot,.live-label,
+/* Kill Vision / AI tells — keep connection-dot for taste status PNGs */
+.workspace-avatar,.session-dot,.metric-dot,.live-label,
 .connection-pill,.neutral-pill,.voice-phase-pill,.agent-index,
 .avatar,.monitor-graphic,.panel-tabs svg,.session-search svg,.session-search kbd,
 .efficiency-note,.inspector-action,.inspector-divider,.eyebrow,
@@ -179,11 +179,7 @@
   font-family:var(--font-mono);
   font-size:var(--fs-lg);
 }
-.brand-word::before{
-  content:"$ ";
-  color:var(--lime);
-  font-weight:700;
-}
+.brand-word::before{content:none}
 .brand small{display:none}
 .brand-dot{display:none}
 .brand-glyph,.rail-glyph-3d{
@@ -393,9 +389,20 @@
   border:1px solid var(--line);
   border-radius:2px!important;
   background:var(--bg)!important;
-  padding:10px 12px;
+  padding:10px 12px 10px 34px;
   margin:0 0 var(--space-2);
   display:block;
+  position:relative;
+}
+.session-search::before{
+  content:"";
+  position:absolute;
+  left:12px;top:50%;
+  width:14px;height:14px;
+  transform:translateY(-50%);
+  background:url('/taste/ico-search.png') center / contain no-repeat;
+  pointer-events:none;
+  opacity:.8;
 }
 .session-search input{
   width:100%;
@@ -445,6 +452,12 @@
   color:var(--on-accent)!important;
   border:1px solid var(--lime)!important;
   background-image:none!important;
+}
+.new-session::before{
+  content:"";
+  width:14px;height:14px;
+  flex-shrink:0;
+  background:url('/taste/ico-new.png') center / contain no-repeat;
 }
 .new-session kbd{
   margin-left:auto;
@@ -1021,6 +1034,13 @@
   border-radius:2px;
   background:var(--bg);
 }
+.provider-marks-row{
+  display:flex;
+  align-items:center;
+  gap:6px;
+  grid-column:1;
+  grid-row:1;
+}
 .connection-card .provider-mark,
 .provider-mark{
   display:grid!important;
@@ -1033,6 +1053,8 @@
   font-size:0;
 }
 .provider-mark img{width:24px;height:24px;object-fit:contain}
+.connection-card>div{grid-column:1}
+.connection-actions{grid-column:2;grid-row:1 / span 2}
 
 @media(max-width:1200px){
   .work-grid{grid-template-columns:minmax(0,1fr) 220px}
@@ -1059,4 +1081,561 @@
 }
 @media(prefers-reduced-motion:reduce){
   .terminal-app *{animation:none!important;transition:none!important}
+}
+
+/* ═══════════════════════════════════════════════════════════
+   Taste full-surface wire — every inventory PNG from
+   docs/jarvis-taste-full-image-prompts.md + extras in /taste
+   ═══════════════════════════════════════════════════════════ */
+
+/* Rail / strips / panels */
+.rail{
+  background-color:var(--panel);
+  background-image:
+    linear-gradient(180deg, color-mix(in srgb, var(--panel) 72%, transparent), var(--panel)),
+    url('/taste/tex-rail-panel.png'),
+    url('/taste/bg-rail.png');
+  background-size:cover, cover, cover;
+  background-position:center;
+  background-blend-mode:normal, soft-light, soft-light;
+}
+.topbar{
+  background-image:
+    linear-gradient(180deg, color-mix(in srgb, var(--panel) 78%, transparent), transparent),
+    url('/taste/tex-topbar.png');
+  background-size:cover, 100% 100%;
+  background-repeat:no-repeat;
+}
+.statusbar{
+  background-image:
+    linear-gradient(0deg, color-mix(in srgb, var(--panel) 70%, transparent), transparent),
+    url('/taste/tex-statusbar.png');
+  background-size:cover, 100% 100%;
+  background-repeat:no-repeat;
+}
+.status-strip{
+  background-image:
+    linear-gradient(180deg, color-mix(in srgb, var(--bg) 55%, transparent), color-mix(in srgb, var(--bg) 80%, transparent)),
+    url('/taste/tex-status-strip.png');
+  background-size:cover, 100% 100%;
+  background-repeat:no-repeat;
+}
+.workspace-heading{
+  background-image:url('/taste/tex-heading-wash.png');
+  background-size:min(720px,100%) auto;
+  background-repeat:no-repeat;
+  background-position:left top;
+}
+.chat-panel{
+  background-image:
+    linear-gradient(180deg, color-mix(in srgb, var(--bg) 70%, transparent), var(--bg)),
+    url('/taste/tex-chat-panel.png'),
+    url('/taste/bg-chat-grain.png')!important;
+  background-size:cover, cover, 320px!important;
+  background-repeat:no-repeat, no-repeat, repeat!important;
+}
+.panel-tabs{
+  background-image:
+    linear-gradient(180deg, color-mix(in srgb, var(--panel) 70%, transparent), transparent),
+    url('/taste/tex-panel-tabs.png')!important;
+  background-size:cover, 100% 100%!important;
+  background-repeat:no-repeat!important;
+}
+.inspector{
+  background-image:
+    linear-gradient(90deg, transparent, color-mix(in srgb, var(--panel) 55%, transparent)),
+    url('/taste/tex-inspector.png');
+  background-size:cover, cover;
+  background-repeat:no-repeat;
+}
+.welcome-wrap{
+  background-image:url('/taste/tex-welcome-wash.png');
+  background-size:min(900px,100%) auto;
+  background-repeat:no-repeat;
+  background-position:center 20%;
+}
+.rail-nav-label,.rail-section{
+  background-image:url('/taste/tex-section-rule.png');
+  background-repeat:no-repeat;
+  background-position:left bottom;
+  background-size:120px 8px;
+  padding-bottom:10px;
+}
+
+/* Buttons */
+.new-session,.rail-upgrade{
+  background-image:url('/taste/btn-primary-fill.png')!important;
+  background-size:cover!important;
+  background-position:center!important;
+}
+.new-session:hover,.rail-upgrade:hover{
+  background-image:url('/taste/btn-primary-hover.png')!important;
+}
+.rail-create-actions .ghost,.rail-create .ghost,.ghost{
+  background-image:url('/taste/btn-ghost-fill.png')!important;
+  background-size:cover!important;
+}
+.rail-create .primary,.primary-button{
+  background-image:url('/taste/btn-confirm-fill.png')!important;
+  background-size:cover!important;
+  background-position:center!important;
+}
+.quiet-button{
+  background-image:url('/taste/btn-quiet-fill.png')!important;
+  background-size:cover!important;
+}
+.top-icon-btn{
+  background-image:url('/taste/btn-icon-plate.png')!important;
+  background-size:cover!important;
+  background-position:center!important;
+}
+
+/* Inputs / wells */
+.provider-picker select,
+.rail-create input,
+.memory-editor input,
+.memory-editor textarea,
+.memory-editor select,
+.library-search,
+.desk-heading select{
+  background-image:url('/taste/tex-input-well.png')!important;
+  background-size:cover!important;
+  background-position:center!important;
+}
+.session-search{
+  background-image:url('/taste/tex-search-well.png')!important;
+  background-size:cover!important;
+}
+.top-search input{
+  background-image:url('/taste/tex-top-search.png')!important;
+  background-size:cover!important;
+  background-position:center!important;
+}
+.session-list button{
+  background-image:url('/taste/tex-session-row.png')!important;
+  background-size:100% 100%!important;
+  background-repeat:no-repeat!important;
+}
+.session-list button.active{
+  background-image:url('/taste/tex-session-row-active.png')!important;
+}
+.activity-list>button{
+  background-image:url('/taste/tex-activity-row.png');
+  background-size:100% 100%;
+  background-repeat:no-repeat;
+}
+.suggestions button:hover{
+  background-image:url('/taste/tex-suggestion-row.png');
+  background-size:100% 100%;
+  background-repeat:no-repeat;
+}
+.composer,.composer-scratch{
+  background-image:url('/taste/tex-composer-well.png')!important;
+  background-size:cover!important;
+  background-position:center!important;
+}
+.composer:focus-within,.composer-scratch:focus-within{
+  background-image:
+    linear-gradient(0deg, color-mix(in srgb, var(--lime) 6%, transparent), transparent),
+    url('/taste/tex-composer-focus.png')!important;
+  background-size:cover, cover!important;
+}
+.agent-card{
+  background-image:
+    linear-gradient(180deg, color-mix(in srgb, var(--panel) 55%, transparent), transparent),
+    url('/taste/tex-agent-card.png')!important;
+  background-size:cover, cover!important;
+}
+.connection-card,.cog-card{
+  background-image:
+    linear-gradient(180deg, color-mix(in srgb, var(--panel) 50%, transparent), transparent),
+    url('/taste/tex-connection-card.png')!important;
+  background-size:cover, cover!important;
+}
+.message.from-you,.bubble.from-you{
+  background-image:url('/taste/tex-bubble-you.png');
+  background-size:100% 100%;
+  background-repeat:no-repeat;
+  padding-inline:10px!important;
+}
+.message.from-jarvis,.bubble.from-jarvis{
+  background-image:url('/taste/tex-bubble-jarvis.png');
+  background-size:100% 100%;
+  background-repeat:no-repeat;
+  padding-inline:10px!important;
+}
+.connection-notice{
+  background-image:url('/taste/tex-notice.png')!important;
+  background-size:cover!important;
+}
+.global-error,.chat-error{
+  background-image:url('/taste/tex-error.png')!important;
+  background-size:cover!important;
+}
+.chat-scroll,.chat-thread{
+  -webkit-mask-image:
+    linear-gradient(180deg, transparent, #000 18px, #000 calc(100% - 18px), transparent),
+    url('/taste/fade-scroll-top.png'),
+    url('/taste/fade-scroll-bottom.png');
+  mask-image:linear-gradient(180deg, transparent, #000 12px, #000 calc(100% - 12px), transparent);
+}
+.mobile-scrim{
+  background-image:
+    linear-gradient(90deg, color-mix(in srgb, #000 55%, transparent), color-mix(in srgb, #000 35%, transparent)),
+    url('/taste/tex-scrim.png')!important;
+  background-size:cover!important;
+}
+.rail-block,.rail-sessions,.guide-card,.run-table,.integration-details{
+  border-image:none;
+}
+.rail-block,.guide-card h3,.setting-label,.inspector-heading{
+  /* divider accents via section rule already on labels */
+}
+.divider-taste,.tex-divider{
+  height:8px;
+  background:url('/taste/tex-divider.png') center / 100% 100% no-repeat;
+  border:0;
+  margin:var(--space-2) 0;
+}
+
+/* Status strip glyphs */
+.status-strip>div>span::before{
+  content:"";
+  display:inline-block;
+  width:12px;height:12px;
+  margin-right:6px;
+  vertical-align:-1px;
+  background-size:contain;
+  background-repeat:no-repeat;
+  background-position:center;
+}
+.status-strip>div:nth-child(1)>span::before{background-image:url('/taste/ico-stat-provider.png')}
+.status-strip>div:nth-child(2)>span::before{background-image:url('/taste/ico-stat-running.png')}
+.status-strip>div:nth-child(3)>span::before{background-image:url('/taste/ico-stat-tokens.png')}
+.status-strip>div:nth-child(4)>span::before{background-image:url('/taste/ico-stat-billing.png')}
+
+/* Composer / mic / send / stop — icon plates */
+.send-button{
+  background-image:url('/taste/ico-send.png')!important;
+  background-size:16px 16px!important;
+  background-repeat:no-repeat!important;
+  background-position:center!important;
+  background-color:var(--lime)!important;
+  color:transparent!important;
+  font-size:0!important;
+  text-indent:-9999px;
+}
+.send-button.stop{
+  background-image:url('/taste/ico-stop.png')!important;
+  background-color:var(--surface)!important;
+  border-color:var(--line)!important;
+}
+.terminal-app[data-theme="light"] .send-button:not(.stop){
+  background-image:url('/taste/ico-send-light.png')!important;
+}
+.terminal-app[data-theme="light"] .send-button.stop{
+  background-image:url('/taste/ico-stop-light.png')!important;
+}
+.mic-button{
+  background-image:url('/taste/ico-mic.png')!important;
+  background-size:16px 16px!important;
+  background-repeat:no-repeat!important;
+  background-position:center!important;
+  color:transparent!important;
+  font-size:0!important;
+  text-indent:-9999px;
+}
+.mic-button.recording{
+  background-image:url('/taste/ico-mic-recording.png')!important;
+}
+.terminal-app[data-theme="light"] .mic-button:not(.recording){
+  background-image:url('/taste/ico-mic-light.png')!important;
+}
+.prompt-mark{
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  font-size:0;
+  color:transparent;
+}
+.prompt-mark::before{
+  content:"";
+  width:14px;height:14px;
+  background:url('/taste/ico-prompt.png') center / contain no-repeat;
+  display:inline-block;
+}
+.bubble-copy{
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  min-height:18px;
+}
+.bubble-copy::before{
+  content:"";
+  width:12px;height:12px;
+  background:url('/taste/ico-copy.png') center / contain no-repeat;
+  display:inline-block;
+}
+.terminal-app[data-theme="light"] .bubble-copy::before{
+  background-image:url('/taste/ico-copy-light.png');
+}
+
+/* Connection / online dots */
+.connection-dot,.taste-dot{
+  display:inline-block!important;
+  width:10px;height:10px;
+  border-radius:0;
+  background:url('/taste/dot-offline.png') center / contain no-repeat;
+  border:0;
+  vertical-align:middle;
+  margin-right:6px;
+}
+.connection-dot.connected,.taste-dot.online{
+  background-image:url('/taste/dot-online.png');
+}
+.connection-dot.warn,.taste-dot.warn{
+  background-image:url('/taste/dot-warn.png');
+}
+.connection-status::before{
+  content:"";
+  display:inline-block;
+  width:10px;height:10px;
+  margin-right:6px;
+  vertical-align:-1px;
+  background:url('/taste/dot-offline.png') center / contain no-repeat;
+}
+.connection-preferred .connection-status::before,
+.connection-card:not(.muted) .connection-status::before{
+  background-image:url('/taste/dot-online.png');
+}
+.connection-card.muted .connection-status::before{
+  background-image:url('/taste/dot-warn.png');
+}
+
+/* Session / role / knowledge icons */
+.session-glyph,.role-glyph,.file-icon,.folder-icon,.skill-check,.taste-ico{
+  display:inline-grid;
+  place-items:center;
+  width:18px;height:18px;
+  flex-shrink:0;
+}
+.session-glyph img,.role-glyph img,.file-icon img,.folder-icon img,.skill-check img,.taste-ico img,
+.project-mark img,.brand-wordmark,.bubble-avatar,.theme-preview img,.god-badge{
+  display:block;
+  object-fit:contain;
+  width:100%;
+  height:100%;
+}
+.session-list button{
+  display:flex!important;
+  align-items:center;
+  gap:8px;
+}
+.agent-card{
+  position:relative;
+}
+.agent-card .role-glyph{
+  width:22px;height:22px;
+  margin-bottom:2px;
+}
+.agent-card-god .god-badge{
+  position:absolute;
+  top:8px;right:8px;
+  width:48px;height:16px;
+  object-fit:contain;
+}
+.provider-mark.codex-mark{margin-left:6px}
+
+/* Theme previews */
+.theme-preview{
+  position:relative;
+  overflow:hidden;
+  background-size:cover!important;
+  background-position:center!important;
+}
+.theme-preview.preview-dark{background-image:url('/taste/tex-theme-dark.png')!important}
+.theme-preview.preview-light{background-image:url('/taste/tex-theme-light.png')!important}
+.theme-preview.preview-system{background-image:url('/taste/tex-theme-system.png')!important}
+.theme-preview>div{opacity:.15}
+
+/* Empty states */
+.empty-panel{
+  display:grid;
+  justify-items:start;
+  gap:12px;
+  padding:var(--space-4) 0;
+}
+.empty-panel .empty-art{
+  width:min(280px,100%);
+  height:auto;
+  border:1px solid var(--line);
+  border-radius:2px;
+  object-fit:cover;
+}
+.rail-empty-art{
+  width:100%;
+  max-width:200px;
+  height:auto;
+  margin:8px 0;
+  opacity:.9;
+  border:1px solid var(--line);
+  border-radius:2px;
+}
+
+/* Checkbox taste */
+.memory-switch input[type="checkbox"],
+.checkbox-label input[type="checkbox"],
+.voice-toggle input[type="checkbox"]{
+  appearance:none;
+  -webkit-appearance:none;
+  width:16px!important;
+  height:16px!important;
+  border:0;
+  background:url('/taste/ico-check-off.png') center / contain no-repeat;
+  cursor:pointer;
+  flex-shrink:0;
+}
+.memory-switch input[type="checkbox"]:checked,
+.checkbox-label input[type="checkbox"]:checked,
+.voice-toggle input[type="checkbox"]:checked{
+  background-image:url('/taste/ico-check-on.png');
+}
+
+/* Loading / spinner */
+.loading-line,.thinking{
+  background-image:url('/taste/spinner-frame.png'), url('/taste/loader-frame.png');
+  background-size:24px 24px, 24px 24px;
+  background-repeat:no-repeat, no-repeat;
+  background-position:left center, left center;
+  padding-left:30px;
+}
+.thinking span{opacity:.35}
+.library-search{
+  position:relative;
+  padding-left:34px!important;
+}
+.library-search::before{
+  content:"";
+  position:absolute;
+  left:12px;top:50%;
+  width:14px;height:14px;
+  transform:translateY(-50%);
+  background:url('/taste/ico-search.png') center / contain no-repeat;
+  pointer-events:none;
+  opacity:.75;
+}
+.library-search svg{display:none!important}
+.cog-card .eyebrow::before,
+.section-heading .eyebrow::before{
+  content:"";
+  display:inline-block;
+  width:12px;height:12px;
+  margin-right:6px;
+  vertical-align:-1px;
+  background:url('/taste/ico-inbox.png') center / contain no-repeat;
+}
+.brain-page .section-heading .eyebrow::before{
+  background-image:url('/taste/ico-knowledge.png');
+}
+.skill-list + .muted-text,
+.skills-search ~ .skill-list .skill-row .skill-type::before{
+  /* skills use check PNGs already */
+}
+.desk-heading h2::before{
+  content:"";
+  display:inline-block;
+  width:16px;height:16px;
+  margin-right:8px;
+  vertical-align:-2px;
+  background:url('/taste/ico-agents.png') center / contain no-repeat;
+}
+.rail-create h4::before{
+  content:"";
+  display:inline-block;
+  width:12px;height:12px;
+  margin-right:6px;
+  vertical-align:-1px;
+  background:url('/taste/ico-projects.png') center / contain no-repeat;
+}
+.divider-hairline,.hairline-taste{
+  height:1px;
+  border:0;
+  margin:var(--space-3) 0;
+  background:url('/taste/divider-hairline.png') center / 100% 1px no-repeat;
+}
+.mark-jarvis-wordmark-ref{
+  /* mark-jarvis-wordmark.png available as alt brand lockup */
+  background-image:url('/taste/mark-jarvis-wordmark.png');
+}
+
+/* Brand wordmark + project marks */
+.brand-wordmark{
+  height:18px;
+  width:auto;
+  max-width:110px;
+  object-fit:contain;
+}
+.project-marks{
+  display:flex;
+  gap:8px;
+  align-items:center;
+  margin-top:4px;
+}
+.project-mark{
+  width:22px;height:22px;
+  border:1px solid var(--line);
+  border-radius:2px;
+  overflow:hidden;
+  background:var(--bg);
+}
+.bubble-avatar{
+  width:18px;height:18px;
+  border-radius:2px;
+  border:1px solid var(--line);
+  object-fit:cover;
+}
+.bubble-meta{gap:8px}
+.bubble-who{
+  display:inline-flex;
+  align-items:center;
+  gap:8px;
+}
+
+/* Footer / top status extras */
+.top-status::before{
+  content:"";
+  width:10px;height:10px;
+  display:inline-block;
+  background:url('/taste/status-online.png') center / contain no-repeat;
+  margin-right:2px;
+}
+.terminal-app:not(:has(.top-status)) .top-status::before{content:none}
+.statusbar>span:first-child::before{
+  content:"";
+  display:inline-block;
+  width:10px;height:10px;
+  margin-right:6px;
+  vertical-align:-1px;
+  background:url('/taste/status-offline.png') center / contain no-repeat;
+}
+.statusbar>span:first-child.online::before,
+.statusbar[data-online="1"]>span:first-child::before{
+  background-image:url('/taste/status-online.png');
+}
+
+/* Guide + hero extras */
+.guide-hero::before{
+  content:"";
+  display:block;
+  width:min(420px,100%);
+  height:72px;
+  margin-bottom:var(--space-2);
+  background:url('/taste/wire-hero-still.png') left center / contain no-repeat;
+  opacity:.85;
+}
+.guide-card{
+  background-image:
+    linear-gradient(180deg, color-mix(in srgb, var(--panel) 70%, transparent), transparent),
+    url('/taste/tex-connection-card.png');
+  background-size:cover, cover;
 }

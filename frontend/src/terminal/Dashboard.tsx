@@ -386,7 +386,9 @@ export default function Dashboard() {
         <div className="rail-brand">
           <a className="brand" href="/" aria-label="JARVIS home">
             <img className="brand-mark" src="/taste/mark-jarvis-amber.png" alt="" width={28} height={28} />
-            <span className="brand-word">JARVIS</span>
+            <span className="brand-word">
+              <img className="brand-wordmark" src="/taste/wordmark-jarvis.png" alt="JARVIS" width={110} height={18} />
+            </span>
           </a>
         </div>
 
@@ -423,6 +425,11 @@ export default function Dashboard() {
                 {workspaceProjects.filter(p => p.id !== 'beaumont-voss').map(p => <option key={p.id} value={p.id}>{p.name}{p.id === 'market-research' ? ' (= Beaumont)' : ''}</option>)}
               </select>
             </label>
+            <div className="project-marks" aria-hidden="true">
+              <span className="project-mark" title="Beaumont Voss"><img src="/taste/mark-beaumont-voss.png" alt="" width={22} height={22} /></span>
+              <span className="project-mark" title="Talvori"><img src="/taste/mark-talvori.png" alt="" width={22} height={22} /></span>
+              <span className="project-mark" title="Personal"><img src="/taste/mark-personal.png" alt="" width={22} height={22} /></span>
+            </div>
             <label className="provider-picker">Provider
               <select aria-label="Provider for new chats" value={provider} onChange={e => setProvider(e.target.value as Provider)}>
                 {connectionOrder.map(id => {
@@ -462,10 +469,18 @@ export default function Dashboard() {
           <div className="session-list">
             {sessions.filter(s => s.title.toLowerCase().includes(search.toLowerCase())).slice(0, 8).map(s => (
               <button key={s.id} className={active === s.id ? 'active' : ''} onClick={() => { setActive(s.id); setView('workspace'); setMobile(false); }}>
+                <span className="session-glyph" aria-hidden="true">
+                  <img src={`/taste/ico-session${isLight ? '-light' : ''}.png`} alt="" width={14} height={14} />
+                </span>
                 <span>{s.title}</span>
               </button>
             ))}
-            {!sessions.length && <p className="rail-empty">No conversations yet.</p>}
+            {!sessions.length && (
+              <div className="rail-empty">
+                <img className="rail-empty-art" src="/taste/empty-sessions.png" alt="" width={200} height={120} />
+                <p>No conversations yet.</p>
+              </div>
+            )}
           </div>
         </div>
       </aside>
@@ -596,6 +611,10 @@ export default function Dashboard() {
                   }[role];
                   return (
                     <button key={role} className={`agent-card${role === 'god' ? ' agent-card-god' : ''}`} onClick={() => void create(role)} disabled={creating}>
+                      <span className="role-glyph" aria-hidden="true">
+                        <img src={`/taste/ico-role-${role}.png`} alt="" width={22} height={22} />
+                      </span>
+                      {role === 'god' ? <img className="god-badge" src="/taste/god-mode-badge.png" alt="" width={48} height={16} /> : null}
                       <h3>{roleNames[role]}</h3>
                       <p>{blurb}</p>
                       <span className="agent-start">{role === 'god' ? 'Start God mode' : 'Start'}</span>
@@ -630,7 +649,10 @@ export default function Dashboard() {
                 const markSrc = `/taste/mark-${id === 'chatgpt' ? 'chatgpt' : id}.png`;
                 return (
                   <div className={`connection-card ${connection?.connected ? '' : 'muted'}${isFallback ? ' connection-fallback' : ' connection-preferred'}`} key={id}>
-                    <span className="provider-mark"><img src={markSrc} alt="" width={24} height={24} /></span>
+                    <span className="provider-marks-row">
+                      <span className="provider-mark"><img src={markSrc} alt="" width={24} height={24} /></span>
+                      {id === 'chatgpt' ? <span className="provider-mark codex-mark" title="Codex"><img src="/taste/mark-codex.png" alt="" width={24} height={24} /></span> : null}
+                    </span>
                     <div>
                       <h2>{providerNames[id]}{isFallback ? ' · local fallback' : ' · preferred'}</h2>
                       <p>{connection?.connected ? (isFallback ? 'Available offline when subscription CLIs are down.' : 'Ready for new conversations.') : connection?.hint || (connection?.installed === false ? 'Not installed yet.' : 'Complete setup to connect.')}</p>
@@ -661,8 +683,8 @@ export default function Dashboard() {
               </div>
             </div>
           )}
-        <footer className="statusbar">
-          <span>{online ? 'Bridge online' : 'Reconnecting'}</span>
+        <footer className="statusbar" data-online={online ? '1' : '0'}>
+          <span className={online ? 'online' : undefined}>{online ? 'Bridge online' : 'Reconnecting'}</span>
           <span>JARVIS</span>
           <span>⌘J new · ⌘K search</span>
         </footer>
@@ -910,7 +932,10 @@ function Chat({ session: s, connected, onError, wakeToken = 0, wakeArmed = false
         {!s.messages.length ? <Welcome /> : s.messages.map(m => (
           <article className={`message bubble ${m.role === 'user' ? 'from-you' : 'from-jarvis'}`} key={m.id}>
             <div className="bubble-meta">
-              <span className="bubble-who">{m.role === 'user' ? 'You' : 'JARVIS'}</span>
+              <span className="bubble-who">
+                <img className="bubble-avatar" src={m.role === 'user' ? '/taste/avatar-you.png' : '/taste/avatar-jarvis.png'} alt="" width={18} height={18} />
+                {m.role === 'user' ? 'You' : 'JARVIS'}
+              </span>
               {m.content && (
                 <button
                   type="button"
@@ -944,7 +969,7 @@ function Chat({ session: s, connected, onError, wakeToken = 0, wakeArmed = false
           placeholder="Ask, explore, make something…"
           leftMeta={(
             <span>
-              <span className="prompt-mark">&gt;_</span> {roleNames[s.role]}{' '}
+              <span className="prompt-mark" aria-hidden="true">&gt;_</span> {roleNames[s.role]}{' '}
               <span className="composer-mode">
                 {s.role === 'god' ? 'Browser · high effort · sub CLIs' : s.role === 'build' ? 'Workspace edits' : 'Read-only tools'}
                 {s.browserControl ? ' · browser on' : ''}
