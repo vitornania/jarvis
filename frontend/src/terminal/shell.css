@@ -104,20 +104,20 @@
 .connection-pill,.neutral-pill,.voice-phase-pill,.agent-index,
 .avatar,.monitor-graphic,.panel-tabs svg,.session-search svg,.session-search kbd,
 .efficiency-note,.inspector-action,.inspector-divider,.eyebrow,
-.statusbar i,.provider-mark,.agent-card svg,.metrics,.status-line,
+.statusbar i,.agent-card svg,.metrics,.status-line,
 .rail-help,.rail-divider,.vui-stats,.vui-stat,.vui-stat-ico{display:none!important}
 .nav-ico{
   display:inline-grid!important;
   place-items:center;
-  width:18px;height:18px;
+  width:20px;height:20px;
   flex-shrink:0;
-  opacity:.85;
+  opacity:1;
 }
-.nav-ico img{width:16px;height:16px;display:block}
+.nav-ico img{width:18px;height:18px;display:block;object-fit:contain}
 .rail nav button.selected .nav-ico,.rail-nav button.selected .nav-ico{opacity:1}
 .brand-mark{
   width:28px;height:28px;border-radius:2px;object-fit:cover;flex-shrink:0;
-  border:1px solid var(--line);
+  border:1px solid var(--line);display:block;
 }
 
 .terminal-app .chat-panel,
@@ -939,23 +939,87 @@
 }
 .brain-page{padding:4px var(--space-5) 40px!important}
 
-/* Elixir inherits house tokens */
-.elixir-hero{display:grid;gap:var(--space-2);margin-bottom:var(--space-4)}
-.elixir-hero-art{
-  width:100%;
-  max-height:220px;
-  object-fit:cover;
-  border:1px solid var(--line);
-  border-radius:2px;
-  margin-bottom:var(--space-2);
-}
-.elixir-hero p,.elixir-note,.elixir-empty{color:var(--muted)}
-.elixir-kicker{font-family:var(--font-mono);font-size:var(--fs-xs);letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
 .agent-card-god{
-  background-image:linear-gradient(180deg,transparent,transparent),url('/taste/god-mode-strip.png')!important;
+  background-image:url('/taste/god-mode-strip.png')!important;
   background-size:100% 4px!important;
   background-repeat:no-repeat!important;
   background-position:top left!important;
+}
+
+/* Guide panel */
+.guide-page{display:grid;gap:var(--space-4);max-width:820px;padding-bottom:var(--space-5)}
+.guide-hero{display:grid;gap:var(--space-2)}
+.guide-kicker{
+  margin:0;
+  font-family:var(--font-mono);
+  font-size:var(--fs-xs);
+  letter-spacing:.1em;
+  text-transform:uppercase;
+  color:var(--lime);
+}
+.guide-hero h2{
+  margin:0;
+  font-size:var(--fs-xl);
+  font-weight:650;
+  letter-spacing:-.03em;
+}
+.guide-hero p,.guide-card p{
+  margin:0;
+  font-size:var(--fs-md);
+  line-height:1.6;
+  color:var(--muted);
+  max-width:62ch;
+}
+.guide-card{
+  border:1px solid var(--line);
+  padding:var(--space-3) var(--space-4);
+  background:color-mix(in srgb, var(--panel) 80%, transparent);
+  display:grid;
+  gap:var(--space-2);
+}
+.guide-card h3{
+  margin:0;
+  font-size:var(--fs-lg);
+  font-weight:650;
+  letter-spacing:-.02em;
+}
+.guide-steps,.guide-list{
+  margin:0;
+  padding-left:1.25rem;
+  display:grid;
+  gap:10px;
+  color:var(--text);
+  font-size:var(--fs-md);
+  line-height:1.55;
+}
+.guide-steps{list-style:decimal}
+.guide-list{list-style:disc}
+.guide-steps li,.guide-list li{padding-left:4px}
+.guide-dl{display:grid;gap:var(--space-3);margin:0}
+.guide-dl>div{display:grid;gap:4px}
+.guide-dl dt{
+  font-family:var(--font-mono);
+  font-size:var(--fs-xs);
+  letter-spacing:.06em;
+  text-transform:uppercase;
+  color:var(--lime);
+}
+.guide-dl dd{
+  margin:0;
+  font-size:var(--fs-md);
+  line-height:1.55;
+  color:var(--muted);
+}
+.guide-page code,.guide-page kbd{
+  font-family:var(--font-mono);
+  font-size:.92em;
+  color:var(--text);
+}
+.guide-page kbd{
+  border:1px solid var(--line);
+  padding:1px 6px;
+  border-radius:2px;
+  background:var(--bg);
 }
 .connection-card .provider-mark,
 .provider-mark{

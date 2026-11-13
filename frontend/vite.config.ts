@@ -40,7 +40,6 @@ export default defineConfig({
         globPatterns: ['**/*.{js,css,html,ico,png,svg}'],
         globIgnores: [
           '**/taste/bg-*.png',
-          '**/taste/elixir-hero*.png',
           '**/taste/empty-prompt*.png',
         ],
         maximumFileSizeToCacheInBytes: 3 * 1024 * 1024,

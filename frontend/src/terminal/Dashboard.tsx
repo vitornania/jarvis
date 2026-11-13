@@ -5,19 +5,19 @@ import '@fontsource-variable/geist';
 import './terminal.css';
 import { Knowledge, Skills, AppearancePanel, VoicePanel, PALETTES, type BrainState, type Appearance, type PaletteId } from './BrainPanels';
 import { Composer } from './Composer';
-import { ElixirEcomPanel, type ElixirMcpStatus } from './ElixirEcomPanel';
+import { GuidePanel } from './GuidePanel';
 import { speakText, stopSpeaking, matchesWakeWord, phaseLabel, type VoicePhase } from './voice';
 import './shell.css';
 
 const TASTE_ICONS: Record<string, string> = {
   workspace: 'workspace',
   agents: 'agents',
-  elixir: 'elixir',
   knowledge: 'knowledge',
   skills: 'skills',
   connections: 'connections',
   voice: 'voice',
   appearance: 'appearance',
+  guide: 'note',
 };
 function tasteIcon(id: string, light: boolean) {
   const name = TASTE_ICONS[id];
@@ -51,7 +51,6 @@ type Status = {
   defaultProject?: string;
   memoryHealth?: { ok?: boolean; vaultWritable?: boolean; memories?: number };
   godMode?: { label?: string };
-  elixirMcp?: ElixirMcpStatus;
 };
 type BrowserSpeechRecognition = {
   continuous: boolean;
@@ -90,7 +89,7 @@ export default function Dashboard() {
   const [view, setView] = useState(() => {
     try {
       const q = new URLSearchParams(window.location.search).get('view');
-      if (q && ['workspace','agents','connections','knowledge','skills','appearance','voice','elixir'].includes(q)) return q;
+      if (q && ['workspace','agents','connections','knowledge','skills','appearance','voice','guide'].includes(q)) return q;
     } catch { /* ignore */ }
     return 'workspace';
   });
@@ -150,7 +149,7 @@ export default function Dashboard() {
   }, []);
   useEffect(() => { try { localStorage.setItem('terminal.appearance', JSON.stringify(appearance)); } catch { /* ignore */ } }, [appearance]);
 
-  const viewNames: Record<string, string> = { workspace: 'Workspace', agents: 'Agent desk', connections: 'Connections', knowledge: 'Knowledge', skills: 'Skills', appearance: 'Appearance', voice: 'Voice', elixir: 'ELIXIR ECOM' };
+  const viewNames: Record<string, string> = { workspace: 'Workspace', agents: 'Agent desk', connections: 'Connections', knowledge: 'Knowledge', skills: 'Skills', appearance: 'Appearance', voice: 'Voice', guide: 'Guide' };
   const connectedCount = Object.values(status?.providers || {}).filter(p => p.connected).length;
   const selectedConnection = status?.providers?.[provider];
 
@@ -320,9 +319,9 @@ export default function Dashboard() {
   const navWork: { id: string; name: string }[] = [
     { id: 'workspace', name: 'Workspace' },
     { id: 'agents', name: 'Agent desk' },
-    { id: 'elixir', name: 'ELIXIR ECOM' },
     { id: 'knowledge', name: 'Knowledge' },
     { id: 'skills', name: 'Skills' },
+    { id: 'guide', name: 'Guide' },
   ];
   const navSetup: { id: string; name: string }[] = [
     { id: 'connections', name: 'Connections' },
@@ -332,12 +331,12 @@ export default function Dashboard() {
   const heading = {
     workspace: ['Workspace', 'Think, build, and dig in. Vault beside you. Cursor first when connected.'],
     agents: ['Agent desk', 'Research, build, review, and God mode on subscription CLIs.'],
-    elixir: ['ELIXIR ECOM', 'Ecommerce MCP for Elixir. Attach in Cursor — no credentials stored here.'],
     connections: ['Connections', 'Cursor preferred. Gemini and ChatGPT next. Ollama is local fallback only.'],
     knowledge: ['Knowledge', 'Beaumont Voss, Talvori, personal, and Zeta in one vault.'],
     skills: ['Skills', 'Ecommerce packs and COG tools. Load only what you need.'],
     appearance: ['Appearance', 'Terminal chrome. Amber accent. Dark, light, or system.'],
     voice: ['Voice', 'Listen only. FreeFlow preferred. Mic as fallback. No speak-out.'],
+    guide: ['Guide', 'What JARVIS is, how to connect tools, and your first five minutes.'],
   } as Record<string, [string, string]>;
 
   const connectionOrder: Provider[] = ['cursor', 'gemini', 'chatgpt', 'ollama'];
@@ -535,7 +534,7 @@ export default function Dashboard() {
           : view === 'skills' ? <Skills brain={brain} selected={selectedSkills} setSelected={setSelectedSkills} />
           : view === 'appearance' ? <AppearancePanel value={appearance} onChange={setAppearance} onCursor={() => api('cursor/open', 'POST', {}).then(r => setNotice(r.message)).catch(e => setError(String(e)))} />
           : view === 'voice' ? <VoicePanel />
-          : view === 'elixir' ? <ElixirEcomPanel elixir={status?.elixirMcp} onRefresh={refreshConnections} refreshing={refreshing} />
+          : view === 'guide' ? <GuidePanel />
           : view === 'workspace' ? (
             <div className={`work-grid ${split && other ? 'split-mode' : ''}`}>
               <section className="chat-panel">
@@ -568,7 +567,6 @@ export default function Dashboard() {
                   </div>
                   <div className="inspector-links">
                     <button type="button" onClick={() => setView('agents')}>Agent desk</button>
-                    <button type="button" onClick={() => setView('elixir')}>ELIXIR ECOM</button>
                     <button type="button" onClick={() => setView('connections')}>Connections</button>
                     <button type="button" onClick={() => setView('knowledge')}>Knowledge</button>
                   </div>
